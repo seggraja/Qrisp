@@ -30,7 +30,7 @@ jobs:
           - name: core
             paths: "tests/circuit_tests tests/core_tests tests/primitives_tests tests/jax_tests tests/test_typing.py"
           - name: algorithms-and-integrations
-            paths: "tests/algorithms_tests tests/operators_tests tests/block_encodings_tests tests/interface_tests tests/stim_integration_tests"
+            paths: "tests/algorithms_tests tests/operators_tests tests/block_encodings_tests tests/qml_tests tests/interface_tests tests/stim_integration_tests"
 
     steps:
       - uses: actions/checkout@v7
