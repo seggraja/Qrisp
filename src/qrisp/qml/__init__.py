@@ -17,3 +17,4 @@
 """
 
 from qrisp.qml.encodings import *
+from qrisp.qml.ansatzes import *
