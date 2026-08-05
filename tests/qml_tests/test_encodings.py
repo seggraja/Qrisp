@@ -60,8 +60,10 @@ def test_angle_encoding_ry_amplitudes(features):
     qf = QuantumFloat(len(features))
     angle_encoding(qf, features)
 
-    # In the statevector array the first feature corresponds to the most
-    # significant bit, so the Kronecker product follows the feature order.
+    # statevector("array") is indexed in reverse bit order, so there the first
+    # feature is the most significant bit and the Kronecker product follows the
+    # feature order. In the |i> labelling it is the other way round, which is
+    # what amplitudes_by_state corrects for.
     expected = np.array([1.0], dtype=complex)
     for x in features:
         expected = np.kron(expected, np.array([np.cos(x / 2), np.sin(x / 2)]))
