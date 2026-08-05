@@ -24,11 +24,18 @@ import pytest
 
 from qrisp import BasisPreparationWarning, QuantumFloat, measure
 from qrisp.jasp import jaspify
-from qrisp.qml import angle_encoding
+from qrisp.qml import amplitude_encoding, angle_encoding
 
 
 def statevector_array(qv):
     return np.array(qv.qs.statevector("array"), dtype=complex)
+
+
+def amplitudes_by_state(qv):
+    """The statevector reindexed so that entry i is the amplitude of |i>."""
+    amplitudes = statevector_array(qv)
+    num_qubits = len(qv)
+    return amplitudes.reshape((2,) * num_qubits).transpose().reshape(-1)
 
 
 @pytest.mark.parametrize(
@@ -121,6 +128,39 @@ def test_angle_encoding_z_axis_warns_only_when_unspecified():
         warnings.simplefilter("error", BasisPreparationWarning)
         angle_encoding(QuantumFloat(2), [0.1, 0.2], axis="z", prepare_basis=True)
         angle_encoding(QuantumFloat(2), [0.1, 0.2], axis="z", prepare_basis=False)
+
+
+@pytest.mark.parametrize(
+    "features, num_qubits",
+    [([1.0, 2.0, 3.0, 4.0], 2), ([1.0, 2.0, 3.0], 2), ([0.5, -1.5], 1)],
+)
+def test_amplitude_encoding_normalizes_and_pads(features, num_qubits):
+    """
+    Feature x_i becomes the amplitude of |i>, zero-padded up to 2**n and
+    normalized to unit norm.
+    """
+    qf = QuantumFloat(num_qubits)
+    amplitude_encoding(qf, features)
+
+    expected = np.zeros(2**num_qubits)
+    expected[: len(features)] = features
+    expected /= np.linalg.norm(expected)
+
+    # statevector("array") is indexed in reverse bit order, so index i of the
+    # feature vector is the amplitude of |i>, not of array entry i.
+    assert np.allclose(amplitudes_by_state(qf), expected)
+
+
+def test_amplitude_encoding_rejects_oversized_feature_vector():
+    """A register of n qubits cannot hold more than 2**n features."""
+    with pytest.raises(ValueError, match="which holds 4 amplitudes"):
+        amplitude_encoding(QuantumFloat(2), [1.0, 2.0, 3.0, 4.0, 5.0])
+
+
+def test_amplitude_encoding_without_padding_requires_exact_length():
+    """pad=False opts out of zero-padding, so the length must match exactly."""
+    with pytest.raises(ValueError, match="pad=True"):
+        amplitude_encoding(QuantumFloat(2), [1.0, 2.0, 3.0], pad=False)
 
 
 @pytest.mark.parametrize("features, outcome", [([0.0, np.pi], 2), ([np.pi, 0.0], 1)])

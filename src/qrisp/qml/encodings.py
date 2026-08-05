@@ -18,11 +18,14 @@
 
 import warnings
 
+import numpy as np
+
+from qrisp.alg_primitives.state_preparation import prepare
 from qrisp.core.gate_application_functions import h, rx, ry, rz
 from qrisp.jasp import check_for_tracing_mode, jlen, jrange
 from qrisp.misc.exceptions import BasisPreparationWarning
 
-__all__ = ["angle_encoding"]
+__all__ = ["angle_encoding", "amplitude_encoding"]
 
 _ROTATION_GATES = {"x": rx, "y": ry, "z": rz}
 
@@ -180,5 +183,104 @@ def angle_encoding(qv, x, axis="y", prepare_basis=_UNSPECIFIED):
         if apply_basis_preparation:
             h(qv[i])
         rotation(x[i], qv[i])
+
+    return qv
+
+
+def amplitude_encoding(qv, x, pad=True):
+    r"""
+    Encodes a feature vector into the amplitudes of a QuantumVariable.
+
+    The feature vector $x$ is encoded as the amplitudes of the computational
+    basis states, i.e. the $i$-th feature is the amplitude of $\ket{i}$:
+
+    .. math::
+
+        \ket{0}^{\otimes n} \mapsto
+        \sum_{i} \frac{x_i}{\lVert x \rVert} \ket{i}
+
+    A register of $n$ qubits holds $2^n$ amplitudes, so amplitude encoding
+    represents $2^n$ features in $n$ qubits. This exponential density is its
+    main advantage over :ref:`angle_encoding`, which requires one qubit per
+    feature.
+
+    The feature vector is normalized internally, as a quantum state must have
+    unit norm. Only the direction of $x$ is therefore encoded; its length is
+    not recoverable from the resulting state.
+
+    **Feature vectors that are not a power of two**
+
+    A register of $n$ qubits holds exactly $2^n$ amplitudes, while feature
+    vectors are rarely a power of two in length. By default the vector is
+    zero-padded up to the size of ``qv``, so the trailing basis states carry
+    zero amplitude. Padding does not change the relative amplitudes of the
+    features, since normalization happens after it.
+
+    Pass ``pad=False`` to require an exactly matching feature vector instead.
+
+    Parameters
+    ----------
+    qv : QuantumVariable
+        The QuantumVariable to encode the features into. Holds $2^n$ features
+        for $n$ qubits.
+    x : list[float] or numpy.ndarray
+        The feature vector. Must not have zero norm, as it is normalized.
+    pad : bool, optional
+        Whether to zero-pad the feature vector up to $2^n$ entries. The default
+        is ``True``. If ``False``, the length of ``x`` must be exactly $2^n$.
+
+    Raises
+    ------
+    ValueError
+        If ``x`` holds more features than ``qv`` can represent.
+    ValueError
+        If ``pad`` is ``False`` and the length of ``x`` is not exactly $2^n$.
+
+    Examples
+    --------
+
+    We encode a three-dimensional feature vector into a :ref:`QuantumFloat`.
+
+    ::
+
+        import numpy as np
+        from qrisp import QuantumFloat
+        from qrisp.qml import amplitude_encoding
+
+        qf = QuantumFloat(2)
+        amplitude_encoding(qf, [1, 2, 3])
+
+    Two qubits hold four amplitudes, so the vector is padded to $(1,2,3,0)$ and
+    normalized by $\sqrt{14}$, giving the feature $x_i$ as the amplitude of
+    $\ket{i}$:
+
+    >>> np.round(qf.qs.statevector("array"), 4)
+    array([0.2673, 0.8018, 0.5345, 0.])
+
+    Note that ``statevector("array")`` is indexed in reverse bit order, so the
+    amplitude of $\ket{i}$ is not at index $i$ of that array.
+
+    """
+    num_amplitudes = 2**qv.size
+
+    if not check_for_tracing_mode():
+        if jlen(x) > num_amplitudes:
+            raise ValueError(
+                f"Tried to amplitude encode {jlen(x)} features into a "
+                f"QuantumVariable of size {qv.size}, which holds "
+                f"{num_amplitudes} amplitudes."
+            )
+
+        if not pad and jlen(x) != num_amplitudes:
+            raise ValueError(
+                f"Tried to amplitude encode {jlen(x)} features into a "
+                f"QuantumVariable holding {num_amplitudes} amplitudes. Pass "
+                "pad=True to zero-pad the feature vector."
+            )
+
+    if pad:
+        x = np.pad(np.asarray(x, dtype=float), (0, num_amplitudes - jlen(x)))
+
+    prepare(qv, x)
 
     return qv
