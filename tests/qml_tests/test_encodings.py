@@ -24,7 +24,12 @@ import pytest
 
 from qrisp import BasisPreparationWarning, QuantumFloat, measure
 from qrisp.jasp import jaspify
-from qrisp.qml import amplitude_encoding, angle_encoding
+from qrisp.qml import (
+    amplitude_encoding,
+    angle_encoding,
+    basis_encoding,
+    dense_angle_encoding,
+)
 
 
 def statevector_array(qv):
@@ -161,6 +166,54 @@ def test_amplitude_encoding_without_padding_requires_exact_length():
     """pad=False opts out of zero-padding, so the length must match exactly."""
     with pytest.raises(ValueError, match="pad=True"):
         amplitude_encoding(QuantumFloat(2), [1.0, 2.0, 3.0], pad=False)
+
+
+@pytest.mark.parametrize(
+    "features, num_qubits",
+    [([1.1, 0.7], 1), ([1.1, 0.7, 0.4, 2.0], 2), ([1.1, 0.7, 0.4], 2)],
+)
+def test_dense_angle_encoding_amplitudes(features, num_qubits):
+    """
+    Each qubit carries two features, as cos(x_2i/2)|0> + e^(i x_2i+1)
+    sin(x_2i/2)|1>. An odd feature count leaves the last qubit without a phase.
+    """
+    qf = QuantumFloat(num_qubits)
+    dense_angle_encoding(qf, features)
+
+    single_qubit_states = []
+    for i in range(num_qubits):
+        theta = features[2 * i]
+        phase = features[2 * i + 1] if 2 * i + 1 < len(features) else 0.0
+        single_qubit_states.append(np.array([np.cos(theta / 2), np.exp(1j * phase) * np.sin(theta / 2)]))
+
+    # Qubit 0 is the least significant bit, so the product runs from the last
+    # qubit down to the first.
+    expected = np.array([1.0], dtype=complex)
+    for state in reversed(single_qubit_states):
+        expected = np.kron(expected, state)
+
+    assert np.allclose(amplitudes_by_state(qf), expected)
+
+
+def test_dense_angle_encoding_rejects_oversized_feature_vector():
+    """Dense angle encoding holds at most two features per qubit."""
+    with pytest.raises(ValueError, match="two features per qubit"):
+        dense_angle_encoding(QuantumFloat(2), [0.1, 0.2, 0.3, 0.4, 0.5])
+
+
+@pytest.mark.parametrize("bits, outcome", [([1, 0, 1], 5), ([0, 0, 0], 0), ([1, 1, 1], 7)])
+def test_basis_encoding_prepares_basis_state(bits, outcome):
+    """The bit vector is encoded into the corresponding computational basis state."""
+    qf = QuantumFloat(len(bits))
+    basis_encoding(qf, bits)
+
+    assert qf.get_measurement() == {outcome: 1.0}
+
+
+def test_basis_encoding_rejects_non_binary_values():
+    """Basis encoding is only defined for bit vectors."""
+    with pytest.raises(ValueError, match="values 0 and 1"):
+        basis_encoding(QuantumFloat(3), [1, 2, 0])
 
 
 @pytest.mark.parametrize("features, outcome", [([0.0, np.pi], 2), ([np.pi, 0.0], 1)])

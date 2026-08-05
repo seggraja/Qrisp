@@ -21,11 +21,18 @@ import warnings
 import numpy as np
 
 from qrisp.alg_primitives.state_preparation import prepare
-from qrisp.core.gate_application_functions import h, rx, ry, rz
+from qrisp.core.gate_application_functions import h, p, rx, ry, rz
+from qrisp.core.gate_application_functions import x as x_gate
+from qrisp.environments import control
 from qrisp.jasp import check_for_tracing_mode, jlen, jrange
 from qrisp.misc.exceptions import BasisPreparationWarning
 
-__all__ = ["angle_encoding", "amplitude_encoding"]
+__all__ = [
+    "angle_encoding",
+    "amplitude_encoding",
+    "dense_angle_encoding",
+    "basis_encoding",
+]
 
 _ROTATION_GATES = {"x": rx, "y": ry, "z": rz}
 
@@ -282,5 +289,135 @@ def amplitude_encoding(qv, x, pad=True):
         x = np.pad(np.asarray(x, dtype=float), (0, num_amplitudes - jlen(x)))
 
     prepare(qv, x)
+
+    return qv
+
+
+def dense_angle_encoding(qv, x):
+    r"""
+    Encodes two features per qubit into a rotation angle and a relative phase.
+
+    Consecutive pairs of features are encoded into one qubit each: the feature
+    $x_{2i}$ as a $Y$ rotation and the feature $x_{2i+1}$ as a relative phase,
+
+    .. math::
+
+        \ket{0} \mapsto
+        \cos(x_{2i}/2)\ket{0} + e^{ix_{2i+1}}\sin(x_{2i}/2)\ket{1}.
+
+    This halves the number of qubits required compared to
+    :ref:`angle_encoding`, which places one feature per qubit. A register of
+    $n$ qubits therefore holds $2n$ features.
+
+    A feature vector of odd length leaves the last qubit without a phase
+    feature, so only its rotation is applied.
+
+    Parameters
+    ----------
+    qv : QuantumVariable
+        The QuantumVariable to encode the features into. Holds two features per
+        qubit.
+    x : list[float] or numpy.ndarray
+        The feature vector. Must hold at most two features per qubit of ``qv``.
+
+    Raises
+    ------
+    ValueError
+        If ``x`` holds more than two features per qubit of ``qv``.
+
+    Examples
+    --------
+
+    We encode a four-dimensional feature vector into two qubits.
+
+    ::
+
+        import numpy as np
+        from qrisp import QuantumFloat
+        from qrisp.qml import dense_angle_encoding
+
+        qf = QuantumFloat(2)
+        dense_angle_encoding(qf, [np.pi / 2, np.pi, np.pi / 2, 0])
+
+    """
+    if not check_for_tracing_mode() and jlen(x) > 2 * qv.size:
+        raise ValueError(
+            f"Tried to dense angle encode {jlen(x)} features into a "
+            f"QuantumVariable of size {qv.size}. Dense angle encoding holds two "
+            "features per qubit."
+        )
+
+    num_rotations = (jlen(x) + 1) // 2
+
+    for i in jrange(num_rotations):
+        ry(x[2 * i], qv[i])
+
+    for i in jrange(jlen(x) // 2):
+        p(x[2 * i + 1], qv[i])
+
+    return qv
+
+
+def basis_encoding(qv, x):
+    r"""
+    Encodes a vector of bits into a computational basis state.
+
+    The $i$-th bit is encoded into the $i$-th qubit, preparing the basis state
+
+    .. math::
+
+        \ket{x_0 x_1 \dotsm x_{n-1}}.
+
+    Basis encoding requires one qubit per bit and represents the feature vector
+    exactly, without normalization or rescaling. In contrast to
+    :ref:`angle_encoding` and :ref:`amplitude_encoding`, the features must be
+    binary.
+
+    Parameters
+    ----------
+    qv : QuantumVariable
+        The QuantumVariable to encode the bits into. Must contain exactly one
+        qubit per bit.
+    x : list[int] or numpy.ndarray
+        The bit vector. Must have length equal to the size of ``qv`` and hold
+        only the values 0 and 1.
+
+    Raises
+    ------
+    ValueError
+        If the length of ``x`` does not match the size of ``qv``.
+    ValueError
+        If ``x`` holds a value other than 0 or 1.
+
+    Examples
+    --------
+
+    We encode a bit vector into a :ref:`QuantumFloat`.
+
+    ::
+
+        from qrisp import QuantumFloat
+        from qrisp.qml import basis_encoding
+
+        qf = QuantumFloat(3)
+        basis_encoding(qf, [1, 0, 1])
+
+    >>> qf.qs.statevector()
+    |5>
+
+    """
+    if not check_for_tracing_mode():
+        if jlen(x) != qv.size:
+            raise ValueError(
+                f"Tried to basis encode {jlen(x)} bits into a QuantumVariable of "
+                f"size {qv.size}. Basis encoding requires one qubit per bit."
+            )
+
+        if not all(bit in (0, 1) for bit in x):
+            raise ValueError("Basis encoding requires a vector of bits, i.e. of the values 0 and 1.")
+
+    for i in jrange(qv.size):
+        with control(x[i] == 1):
+            x_gate(qv[i])
 
     return qv
