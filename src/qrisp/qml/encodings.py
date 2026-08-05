@@ -19,16 +19,14 @@
 import warnings
 
 from qrisp.core.gate_application_functions import h, rx, ry, rz
+from qrisp.jasp import check_for_tracing_mode, jlen, jrange
+from qrisp.misc.exceptions import BasisPreparationWarning
 
-__all__ = ["angle_encoding", "BasisPreparationWarning"]
+__all__ = ["angle_encoding"]
 
 _ROTATION_GATES = {"x": rx, "y": ry, "z": rz}
 
 _AXES_REQUIRING_BASIS_PREPARATION = {"z"}
-
-
-class BasisPreparationWarning(UserWarning):
-    """Warning raised when an encoding inserts a basis change automatically."""
 
 
 # Marks that the caller did not specify ``prepare_basis``, so that only the
@@ -154,10 +152,10 @@ def angle_encoding(qv, x, axis="y", prepare_basis=_UNSPECIFIED):
             f"Unknown rotation axis '{axis}' for angle encoding. Supported axes are {sorted(_ROTATION_GATES)}."
         )
 
-    if len(x) != len(qv):
+    if not check_for_tracing_mode() and jlen(x) != qv.size:
         raise ValueError(
-            f"Tried to angle encode {len(x)} features into a QuantumVariable of "
-            f"size {len(qv)}. Angle encoding requires one qubit per feature."
+            f"Tried to angle encode {jlen(x)} features into a QuantumVariable of "
+            f"size {qv.size}. Angle encoding requires one qubit per feature."
         )
 
     needs_basis_preparation = axis in _AXES_REQUIRING_BASIS_PREPARATION
@@ -176,9 +174,10 @@ def angle_encoding(qv, x, axis="y", prepare_basis=_UNSPECIFIED):
         )
 
     rotation = _ROTATION_GATES[axis]
+    apply_basis_preparation = needs_basis_preparation and basis_preparation_requested
 
-    for i in range(len(qv)):
-        if needs_basis_preparation and basis_preparation_requested:
+    for i in jrange(qv.size):
+        if apply_basis_preparation:
             h(qv[i])
         rotation(x[i], qv[i])
 

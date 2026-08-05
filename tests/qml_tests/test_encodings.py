@@ -18,11 +18,13 @@
 
 import warnings
 
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from qrisp import QuantumFloat
-from qrisp.qml import angle_encoding, BasisPreparationWarning
+from qrisp import BasisPreparationWarning, QuantumFloat, measure
+from qrisp.jasp import jaspify
+from qrisp.qml import angle_encoding
 
 
 def statevector_array(qv):
@@ -119,3 +121,16 @@ def test_angle_encoding_z_axis_warns_only_when_unspecified():
         warnings.simplefilter("error", BasisPreparationWarning)
         angle_encoding(QuantumFloat(2), [0.1, 0.2], axis="z", prepare_basis=True)
         angle_encoding(QuantumFloat(2), [0.1, 0.2], axis="z", prepare_basis=False)
+
+
+@pytest.mark.parametrize("features, outcome", [([0.0, np.pi], 2), ([np.pi, 0.0], 1)])
+def test_angle_encoding_traces(features, outcome):
+    """Angle encoding is compatible with the Jasp tracing path."""
+
+    @jaspify
+    def main(x):
+        qf = QuantumFloat(2)
+        angle_encoding(qf, x, prepare_basis=False)
+        return measure(qf)
+
+    assert main(jnp.array(features)) == outcome
