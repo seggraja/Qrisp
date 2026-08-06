@@ -1,0 +1,301 @@
+"""
+********************************************************************************
+* Copyright (c) 2026 the Qrisp authors
+*
+* This program and the accompanying materials are made available under the
+* terms of the Eclipse Public License 2.0 which is available at
+* http://www.eclipse.org/legal/epl-2.0.
+*
+* This Source Code may also be made available under the following Secondary
+* Licenses when the conditions for such availability set forth in the Eclipse
+* Public License, v. 2.0 are satisfied: GNU General Public License, version 2
+* with the GNU Classpath Exception which is
+* available at https://www.gnu.org/software/classpath/license.html.
+*
+* SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+********************************************************************************
+"""
+
+import numpy as np
+
+__all__ = ["binarize", "minmax_scale", "normalize"]
+
+
+def minmax_scale(X_train, X_test=None, feature_range=(0.0, np.pi)):
+    r"""
+    Scales features into an interval suitable for angle encoding.
+
+    Each feature is mapped linearly from its range on the training data onto
+    ``feature_range``:
+
+    .. math::
+
+        x' = a + (b - a) \frac{x - \min(x)}{\max(x) - \min(x)}
+
+    The minimum and maximum are taken over ``X_train`` alone, and the same two
+    numbers are applied to ``X_test``. Deriving them from the test data as well
+    would let information about it reach the model during training, which makes
+    the measured accuracy better than the model actually is.
+
+    Because the test data is scaled with the training range, a test feature
+    outside that range would leave ``feature_range``. Such values are clipped to
+    its bounds, which keeps every encoded angle inside the interval the encoding
+    expects.
+
+    **Why the interval matters**
+
+    :ref:`angle_encoding` and :ref:`dense_angle_encoding` read features as
+    rotation angles. Rotations are $2\pi$-periodic, so features spanning more
+    than $2\pi$ wrap: the values $x$ and $x + 2\pi$ prepare the same state and
+    the model cannot separate them. The default range $[0, \pi]$ stays well
+    inside one period and spans $\ket{0}$ to $\ket{1}$ for a $Y$ rotation.
+
+    A feature that is constant across the training data has a zero range. It
+    carries no information, and is mapped to the lower bound of
+    ``feature_range`` rather than producing a division by zero.
+
+    Parameters
+    ----------
+    X_train : numpy.ndarray
+        The training features, shaped ``(N, n_features)``. The scaling is
+        derived from this array.
+    X_test : numpy.ndarray, optional
+        Further features to scale with the training range, shaped
+        ``(M, n_features)``. The default is ``None``, in which case only the
+        scaled training features are returned.
+    feature_range : tuple[float, float], optional
+        The interval to scale into. The default is ``(0, numpy.pi)``. A range
+        longer than $2\pi$ raises a ``ValueError``, since the encodings could
+        not distinguish its endpoints.
+
+    Returns
+    -------
+    numpy.ndarray or tuple[numpy.ndarray, numpy.ndarray]
+        The scaled training features, and the scaled test features if
+        ``X_test`` was given.
+
+    Raises
+    ------
+    ValueError
+        If ``feature_range`` is empty or spans more than $2\pi$.
+    ValueError
+        If ``X_test`` does not have the same number of features as
+        ``X_train``.
+
+    Examples
+    --------
+
+    We scale a training and a test set together.
+
+    ::
+
+        import numpy as np
+        from qrisp.qml import minmax_scale
+
+        X_train = np.array([[0.0, 10.0], [1.0, 20.0], [2.0, 30.0]])
+        X_test = np.array([[0.5, 15.0]])
+
+        X_train_scaled, X_test_scaled = minmax_scale(X_train, X_test)
+
+    The training features now span the full interval.
+
+    >>> np.round(X_train_scaled, 4)
+    array([[0.    , 0.    ],
+           [1.5708, 1.5708],
+           [3.1416, 3.1416]])
+
+    The test features are placed on the same scale rather than on their own.
+
+    >>> np.round(X_test_scaled, 4)
+    array([[0.7854, 0.7854]])
+
+    The scaled features are ready to be encoded.
+
+    ::
+
+        from qrisp import QuantumFloat
+        from qrisp.qml import angle_encoding
+
+        qf = QuantumFloat(2)
+        angle_encoding(qf, X_train_scaled[0])
+
+    """
+    low, high = feature_range
+
+    if not high > low:
+        raise ValueError(f"Tried to scale into an empty feature range ({low}, {high}).")
+
+    if high - low > 2 * np.pi:
+        raise ValueError(
+            f"Tried to scale into the feature range ({low}, {high}), which is "
+            f"longer than 2*pi. Rotation angles are 2*pi-periodic, so its "
+            "endpoints would encode to the same state."
+        )
+
+    X_train = np.asarray(X_train, dtype=float)
+
+    minimum = X_train.min(axis=0)
+    maximum = X_train.max(axis=0)
+    spread = maximum - minimum
+
+    # A constant feature spans nothing to scale onto the range, so it is mapped
+    # to the lower bound instead of dividing by zero.
+    constant = spread == 0
+    spread = np.where(constant, 1.0, spread)
+
+    def scale(X):
+        X = np.asarray(X, dtype=float)
+
+        if X.shape[-1] != X_train.shape[-1]:
+            raise ValueError(
+                f"Tried to scale {X.shape[-1]} features with a range derived from {X_train.shape[-1]} features."
+            )
+
+        scaled = low + (high - low) * (X - minimum) / spread
+        scaled = np.where(constant, low, scaled)
+
+        # Test features outside the training range would land outside
+        # feature_range, where the encodings no longer behave as documented.
+        return np.clip(scaled, low, high)
+
+    if X_test is None:
+        return scale(X_train)
+
+    return scale(X_train), scale(X_test)
+
+
+def normalize(X):
+    r"""
+    Scales each sample to unit norm for amplitude encoding.
+
+    Every row is divided by its Euclidean norm:
+
+    .. math::
+
+        x' = \frac{x}{\lVert x \rVert}
+
+    :ref:`amplitude_encoding` writes the features into the amplitudes of a
+    register, and a quantum state has unit norm. It therefore normalizes
+    internally, which means the length of a feature vector never reaches the
+    circuit: only its direction is encoded. Two samples differing by a scalar
+    factor prepare the same state.
+
+    Applying this function first makes that visible in the data rather than
+    leaving it to happen silently inside the encoding. Where the magnitude
+    carries information, it has to be kept as a separate feature, and this
+    function shows what would otherwise be lost.
+
+    Parameters
+    ----------
+    X : numpy.ndarray
+        The features, shaped ``(N, n_features)``. A single sample shaped
+        ``(n_features,)`` is also accepted.
+
+    Returns
+    -------
+    numpy.ndarray
+        The features, each sample scaled to unit norm.
+
+    Raises
+    ------
+    ValueError
+        If any sample has zero norm, which has no direction to encode.
+
+    Examples
+    --------
+
+    ::
+
+        import numpy as np
+        from qrisp.qml import normalize
+
+        X = np.array([[3.0, 4.0], [1.0, 0.0]])
+        X_normalized = normalize(X)
+
+    The first sample had norm $5$, so it is divided by it.
+
+    >>> np.round(X_normalized, 4)
+    array([[0.6, 0.8],
+           [1. , 0. ]])
+
+    Every sample now has unit norm, which is what the encoded state carries.
+
+    >>> np.round(np.linalg.norm(X_normalized, axis=1), 4)
+    array([1., 1.])
+
+    """
+    X = np.asarray(X, dtype=float)
+
+    norms = np.linalg.norm(X, axis=-1, keepdims=True)
+
+    if np.any(norms == 0):
+        raise ValueError("Tried to normalize a sample of zero norm, which has no direction to encode into amplitudes.")
+
+    return X / norms
+
+
+def binarize(X, threshold=0.0):
+    r"""
+    Turns features into the bit values basis encoding requires.
+
+    Each feature above ``threshold`` becomes ``1`` and each feature at or below
+    it becomes ``0``:
+
+    .. math::
+
+        x' = \begin{cases} 1 & x > t \\ 0 & x \leq t \end{cases}
+
+    :ref:`basis_encoding` maps a bit vector onto a computational basis state and
+    accepts only the values 0 and 1, so continuous features have to be reduced
+    to bits before they can be encoded that way.
+
+    This discards everything about a feature except which side of the threshold
+    it falls on. It suits data that is already close to binary, and loses most
+    of the information in data that is not.
+
+    Parameters
+    ----------
+    X : numpy.ndarray
+        The features, shaped ``(N, n_features)``. A single sample shaped
+        ``(n_features,)`` is also accepted.
+    threshold : float, optional
+        The value a feature has to exceed to become ``1``. The default is
+        ``0.0``.
+
+    Returns
+    -------
+    numpy.ndarray
+        The features as integers, holding only the values 0 and 1.
+
+    Examples
+    --------
+
+    ::
+
+        import numpy as np
+        from qrisp.qml import binarize
+
+        X = np.array([[0.8, -0.2], [-1.0, 2.0]])
+        bits = binarize(X)
+
+    >>> bits
+    array([[1, 0],
+           [0, 1]])
+
+    The result is directly encodable.
+
+    ::
+
+        from qrisp import QuantumFloat
+        from qrisp.qml import basis_encoding
+
+        qf = QuantumFloat(2)
+        basis_encoding(qf, bits[0])
+
+    A threshold splits continuous features at a chosen value instead.
+
+    >>> binarize(np.array([[0.2, 0.7]]), threshold=0.5)
+    array([[0, 1]])
+
+    """
+    return (np.asarray(X, dtype=float) > threshold).astype(int)
