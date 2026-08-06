@@ -267,6 +267,24 @@ Explore the Jasp pipeline to build highly performant algorithms, and ensure your
         +++
         **Using BigInteger to compile Shor's at 2048 bit**
 
+    .. grid-item-card::
+        :shadow: sm
+        :text-align: center
+
+        .. raw:: html
+
+            <a href="./QMLtutorial.html">
+            <div class="example-img-plot-overlay">
+            <p class="sd-card-text">Build a quantum machine learning model from encoding, ansatz and measurement primitives, and train it on a supervised learning task.</p>
+            </div>
+            </a>
+
+        .. image:: ../../_static/hello_world.png
+            :alt: Quantum Machine Learning Tutorial
+
+        +++
+        **Quantum Machine Learning from primitives**
+
 
 Scientific Computing and Quantum Numerical Linear Algebra
 ---------------------------------------------------------
@@ -375,6 +393,7 @@ So, take these concepts, experiment, and start building the future of quantum co
    JaspQAOAtutorial.ipynb
    FT_compilation.ipynb
    BigInteger.ipynb
+   QMLtutorial.ipynb
    H2.ipynb
    BE_tutorial/index
    GQSP_filtering.ipynb
