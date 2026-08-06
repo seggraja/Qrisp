@@ -229,3 +229,23 @@ def test_angle_encoding_traces(features, outcome):
         return measure(qf)
 
     assert main(jnp.array(features)) == outcome
+
+
+@pytest.mark.parametrize(
+    "features, num_qubits",
+    [([1.0, 0.0, 0.0], 2), ([1.0, 0.0, 0.0, 0.0], 2), ([1.0, 0.0, 0.0], 3)],
+)
+def test_amplitude_encoding_traces(features, num_qubits):
+    """
+    Amplitude encoding is compatible with the Jasp tracing path, including the
+    padded cases. The feature vector is the first basis state, so the register
+    is deterministic and the measurement is a value rather than a sample.
+    """
+
+    @jaspify
+    def main(x):
+        qf = QuantumFloat(num_qubits)
+        amplitude_encoding(qf, x)
+        return measure(qf)
+
+    assert main(jnp.array(features)) == 0

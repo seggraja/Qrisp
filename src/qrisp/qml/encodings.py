@@ -18,6 +18,7 @@
 
 import warnings
 
+import jax.numpy as jnp
 import numpy as np
 
 from qrisp.alg_primitives.state_preparation import prepare
@@ -223,6 +224,9 @@ def amplitude_encoding(qv, x, pad=True):
     zero amplitude. Padding does not change the relative amplitudes of the
     features, since normalization happens after it.
 
+    A register larger than the features require is padded out in the same way,
+    leaving the surplus basis states empty.
+
     Pass ``pad=False`` to require an exactly matching feature vector instead.
 
     Parameters
@@ -268,9 +272,11 @@ def amplitude_encoding(qv, x, pad=True):
     amplitude of $\ket{i}$ is not at index $i$ of that array.
 
     """
-    num_amplitudes = 2**qv.size
+    tracing = check_for_tracing_mode()
 
-    if not check_for_tracing_mode():
+    if not tracing:
+        num_amplitudes = 2**qv.size
+
         if jlen(x) > num_amplitudes:
             raise ValueError(
                 f"Tried to amplitude encode {jlen(x)} features into a "
@@ -286,11 +292,27 @@ def amplitude_encoding(qv, x, pad=True):
             )
 
     if pad:
-        x = np.pad(np.asarray(x, dtype=float), (0, num_amplitudes - jlen(x)))
+        x = jnp.asarray(x, dtype=float)
+        num_features = jnp.shape(x)[0]
+
+        if tracing:
+            # qv.size is a tracer and cannot size an allocation, so the target
+            # comes from the feature count, which is known while tracing.
+            # prepare() pads the rest of the way when the register is larger.
+            num_amplitudes = _next_power_of_two(num_features)
+
+        x = jnp.pad(x, (0, num_amplitudes - num_features))
 
     prepare(qv, x)
 
     return qv
+
+
+def _next_power_of_two(n):
+    """
+    Returns the smallest power of two that is at least ``n``.
+    """
+    return 1 << (n - 1).bit_length()
 
 
 def dense_angle_encoding(qv, x):
