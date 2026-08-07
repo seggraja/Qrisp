@@ -127,6 +127,14 @@ def hardware_efficient(qv, w, layers=1, rotations=("y",), entangler="cx"):
             f"Supported entanglers are {sorted(_ENTANGLING_GATES)}."
         )
 
+    if layers < 0:
+        raise ValueError(
+            f"Tried to apply a hardware efficient ansatz with a negative layer "
+            f"count ({layers}). The parameter count check does not catch this, "
+            "as a negative count expects no parameters and would leave the "
+            "QuantumVariable untouched."
+        )
+
     num_rotation_layers = layers + 1
 
     if not check_for_tracing_mode():
@@ -227,6 +235,14 @@ def real_amplitudes(qv, w, layers=1, entanglement="ring"):
         raise ValueError(
             f"Unknown entanglement '{entanglement}' for the real amplitudes "
             f"ansatz. Supported entanglements are {sorted(_ENTANGLEMENTS)}."
+        )
+
+    if layers < 0:
+        raise ValueError(
+            f"Tried to apply a real amplitudes ansatz with a negative layer "
+            f"count ({layers}). The parameter count check does not catch this, "
+            "as a negative count expects no parameters and would leave the "
+            "QuantumVariable untouched."
         )
 
     if not check_for_tracing_mode():
@@ -420,7 +436,9 @@ def _flatten_parameters(w):
     if hasattr(w, "ravel"):
         return w.ravel()
 
-    return jnp.asarray(w, dtype=float)
+    # A nested list describes the same shape as the equivalent array, so it is
+    # flattened rather than kept as the two-dimensional array asarray builds.
+    return jnp.asarray(w, dtype=float).ravel()
 
 
 def hardware_efficient_size(num_qubits, layers=1, rotations=("y",)):

@@ -249,3 +249,13 @@ def test_amplitude_encoding_traces(features, num_qubits):
         return measure(qf)
 
     assert main(jnp.array(features)) == 0
+
+
+def test_next_power_of_two_of_zero_is_one():
+    """
+    Zero amplitudes need no qubits to hold them, so the smallest power of two
+    that is at least zero is one. The bit_length of -1 would give two.
+    """
+    from qrisp.qml.encodings import _next_power_of_two
+
+    assert _next_power_of_two(0) == 1

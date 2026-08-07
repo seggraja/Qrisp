@@ -21,6 +21,19 @@ import numpy as np
 __all__ = ["binarize", "minmax_scale", "normalize"]
 
 
+def _check_finite(X, name):
+    """
+    Rejects features that are not finite.
+
+    A NaN propagates through the scalers into every encoded angle, and
+    comparisons against it are always False, so it would be encoded as a zero
+    bit rather than reported. Neither is recoverable once the features reach a
+    circuit, so they are rejected while the offending value can still be seen.
+    """
+    if not np.all(np.isfinite(X)):
+        raise ValueError(f"Tried to {name} features that are not all finite, i.e. that hold a NaN or an infinity.")
+
+
 def minmax_scale(X_train, X_test=None, feature_range=(0.0, np.pi)):
     r"""
     Scales features into an interval suitable for angle encoding.
@@ -49,6 +62,12 @@ def minmax_scale(X_train, X_test=None, feature_range=(0.0, np.pi)):
     than $2\pi$ wrap: the values $x$ and $x + 2\pi$ prepare the same state and
     the model cannot separate them. The default range $[0, \pi]$ stays well
     inside one period and spans $\ket{0}$ to $\ket{1}$ for a $Y$ rotation.
+
+    A range of exactly $2\pi$ is a full turn, so its two endpoints encode to the
+    same state and the smallest and largest values of a feature become
+    indistinguishable. Only the endpoints collide, and the range is accepted for
+    callers who want the full period; the default $[0,\pi]$ avoids the collision
+    entirely.
 
     A feature that is constant across the training data has a zero range. It
     carries no information, and is mapped to the lower bound of
@@ -134,6 +153,16 @@ def minmax_scale(X_train, X_test=None, feature_range=(0.0, np.pi)):
 
     X_train = np.asarray(X_train, dtype=float)
 
+    if X_train.ndim != 2:
+        raise ValueError(
+            f"Tried to scale features shaped {X_train.shape}. minmax_scale "
+            "derives its range across samples, so it requires a two-dimensional "
+            "array shaped (n_samples, n_features). A single sample has no range "
+            "to scale onto the feature range."
+        )
+
+    _check_finite(X_train, "scale")
+
     minimum = X_train.min(axis=0)
     maximum = X_train.max(axis=0)
     spread = maximum - minimum
@@ -145,6 +174,7 @@ def minmax_scale(X_train, X_test=None, feature_range=(0.0, np.pi)):
 
     def scale(X):
         X = np.asarray(X, dtype=float)
+        _check_finite(X, "scale")
 
         if X.shape[-1] != X_train.shape[-1]:
             raise ValueError(
@@ -225,13 +255,20 @@ def normalize(X):
 
     """
     X = np.asarray(X, dtype=float)
+    _check_finite(X, "normalize")
 
-    norms = np.linalg.norm(X, axis=-1, keepdims=True)
+    # Dividing by the largest component first keeps the norm of a sample of very
+    # small components from underflowing to zero, which would report a well
+    # defined direction as having none.
+    largest = np.max(np.abs(X), axis=-1, keepdims=True)
 
-    if np.any(norms == 0):
+    if np.any(largest == 0):
         raise ValueError("Tried to normalize a sample of zero norm, which has no direction to encode into amplitudes.")
 
-    return X / norms
+    rescaled = X / largest
+    norms = np.linalg.norm(rescaled, axis=-1, keepdims=True)
+
+    return rescaled / norms
 
 
 def binarize(X, threshold=0.0):
@@ -298,4 +335,7 @@ def binarize(X, threshold=0.0):
     array([[0, 1]])
 
     """
-    return (np.asarray(X, dtype=float) > threshold).astype(int)
+    X = np.asarray(X, dtype=float)
+    _check_finite(X, "binarize")
+
+    return (X > threshold).astype(int)

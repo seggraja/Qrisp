@@ -295,3 +295,33 @@ def test_data_reuploading_traces(kwargs, per_layer):
     # On a single qubit there is nothing to entangle, so with vanishing
     # parameters the two uploads of RY(pi/2) compose to RY(pi) and flip it.
     assert main(jnp.array([jnp.pi / 2]), jnp.zeros(2 * per_layer)) == 1
+
+
+@pytest.mark.parametrize("ansatz", [real_amplitudes, hardware_efficient])
+def test_ansatzes_accept_nested_list_parameters(ansatz):
+    """
+    The docstrings promise that a shaped parameter array is read in the same
+    order as the equivalent flat vector. A nested list is such a shape, so it
+    has to be accepted like the array it describes.
+    """
+    flat = [0.3, 0.7, 1.1, 1.5, 1.9, 2.3]
+    nested = [[0.3, 0.7, 1.1], [1.5, 1.9, 2.3]]
+
+    def run(w):
+        qf = QuantumFloat(3)
+        ansatz(qf, w, layers=1)
+        return qf.qs.statevector("array")
+
+    assert np.allclose(run(nested), run(flat))
+
+
+@pytest.mark.parametrize("ansatz", [real_amplitudes, hardware_efficient])
+def test_ansatzes_reject_negative_layers(ansatz):
+    """
+    A negative layer count leaves the rotation loop empty, applying no gates at
+    all and silently returning an untouched QuantumVariable. The parameter count
+    check does not catch it, because a negative count expects no parameters and
+    an empty vector satisfies that.
+    """
+    with pytest.raises(ValueError, match="negative"):
+        ansatz(QuantumFloat(3), np.zeros(0), layers=-1)

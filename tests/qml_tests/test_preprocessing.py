@@ -167,3 +167,43 @@ def test_binarize_output_is_accepted_by_basis_encoding():
 
     # Bits (1, 0, 1) with qubit 0 as the least significant bit is the state |5>.
     assert qf.get_measurement() == {5: 1.0}
+
+
+def test_minmax_scale_rejects_a_single_sample():
+    """
+    normalize and binarize both document that a single sample shaped
+    (n_features,) is accepted. minmax_scale derives its range along axis 0, so
+    a 1-D input is read as N samples of one feature instead — the opposite
+    convention, silently producing plausible-looking output.
+    """
+    with pytest.raises(ValueError, match="two-dimensional"):
+        minmax_scale([1.0, 2.0, 3.0])
+
+
+def test_normalize_handles_a_vector_whose_norm_underflows():
+    """
+    A vector of tiny components has a well defined direction, but its norm
+    underflows to exactly zero in double precision. Rescaling before taking the
+    norm recovers the direction instead of reporting a zero-norm sample.
+    """
+    normalized = normalize(np.array([1e-300, 1e-300]))
+
+    assert np.allclose(normalized, [2**-0.5, 2**-0.5])
+
+
+@pytest.mark.parametrize(
+    "function, X",
+    [
+        (minmax_scale, np.array([[1.0, np.nan], [3.0, 4.0]])),
+        (normalize, np.array([[1.0, np.nan]])),
+        (binarize, np.array([[1.0, np.nan]])),
+    ],
+)
+def test_preprocessing_rejects_non_finite_values(function, X):
+    """
+    A NaN propagates through the scalers into every encoded angle, and binarize
+    maps it to 0 because a NaN comparison is False. Neither is recoverable
+    downstream, so the input is rejected where it can still be diagnosed.
+    """
+    with pytest.raises(ValueError, match="finite"):
+        function(X)
