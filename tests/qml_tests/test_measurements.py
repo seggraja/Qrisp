@@ -93,3 +93,33 @@ def test_expectation_accepts_a_tuple_of_observables():
     result = expectation(state_prep, (Z(0), Z(1)), precision=PRECISION)([np.pi, 0.0])
 
     assert np.allclose(result, [-1.0, 1.0], atol=TOLERANCE)
+
+
+@pytest.mark.parametrize("container", [list, tuple, np.array, iter], ids=["list", "tuple", "ndarray", "iterator"])
+def test_expectation_accepts_any_sequence_of_observables(container):
+    """
+    Observables were identified by isinstance against list and tuple, so an
+    ndarray or a generator fell through to the single operator branch and
+    failed with an AttributeError naming a numpy internal.
+    """
+    observables = container([Z(0), Z(1)])
+
+    def state_prep():
+        return QuantumFloat(2)
+
+    # The register stays in |00>, so both qubits are measured as +1.
+    assert np.allclose(expectation(state_prep, observables)(), [1.0, 1.0])
+
+
+def test_expectation_rejects_an_empty_sequence():
+    """
+    An empty sequence returned an empty array from a function that samples
+    nothing, which reads as a successful measurement of no observables rather
+    than as the mistake it is.
+    """
+
+    def state_prep():
+        return QuantumFloat(2)
+
+    with pytest.raises(ValueError, match="empty sequence"):
+        expectation(state_prep, [])

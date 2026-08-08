@@ -21,9 +21,10 @@ import warnings
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from jax.tree_util import register_pytree_node_class
 
-from qrisp import BasisPreparationWarning, QuantumFloat, measure
-from qrisp.jasp import jaspify
+from qrisp import BasisPreparationWarning, QuantumFloat, measure, ry
+from qrisp.jasp import jaspify, jrange
 from qrisp.qml import Encoding
 
 
@@ -269,3 +270,65 @@ def test_next_power_of_two_of_zero_is_one():
     from qrisp.qml.encodings import _next_power_of_two
 
     assert _next_power_of_two(0) == 1
+
+
+@register_pytree_node_class
+class DoubleAngleEncoding(Encoding):
+    """
+    A minimal user written encoding, built only from the documented hook.
+    """
+
+    def encode(self, qv, x):
+        for i in jrange(qv.size):
+            ry(2 * x[i], qv[i])
+        return qv
+
+
+def test_subclass_inherits_the_traced_feature_check():
+    """
+    The check on the base class is the reason for subclassing rather than
+    writing a bare function. Under tracing Jax reads past the end of a short
+    feature vector by reusing its last value, so without this the wrong state is
+    prepared with no error.
+    """
+    encoding = DoubleAngleEncoding(n_features=2)
+
+    @jaspify
+    def main(x):
+        qf = QuantumFloat(2)
+        encoding.apply(qf, x)
+        return measure(qf)
+
+    with pytest.raises(ValueError, match="configured for 2"):
+        main(jnp.zeros(5))
+
+
+def test_subclass_receives_scaled_features():
+    """
+    apply is documented as counting and scaling the features before encode sees
+    them, so a subclass inherits the scaling without implementing it. Scaling
+    [0, 1] onto [0, pi/2] and doubling inside encode gives RY(pi) on the second
+    qubit, leaving |10> with qubit 0 as the least significant bit.
+    """
+    encoding = DoubleAngleEncoding(n_features=2, scaling=(jnp.pi / 2, 0.0, (0.0, jnp.pi / 2)))
+
+    @jaspify
+    def main(x):
+        qf = QuantumFloat(2)
+        encoding.apply(qf, x)
+        return measure(qf)
+
+    assert main(jnp.array([0.0, 1.0])) == 2
+
+
+def test_encoding_without_its_hook_reports_what_is_missing():
+    """
+    A subclass that implements nothing would otherwise apply no gates and return
+    an untouched QuantumVariable, which looks like a working encoding of zeros.
+    """
+
+    class Incomplete(Encoding):
+        pass
+
+    with pytest.raises(NotImplementedError, match="encode"):
+        Incomplete(n_features=2).apply(QuantumFloat(2), [0.1, 0.2])

@@ -476,6 +476,34 @@ class Encoding:
     so training and test data are placed on the same scale. Only the derived
     range is retained; ``data`` itself is not.
 
+    **Writing an encoding**
+
+    Subclassing this class gives an encoding of your own the same feature count
+    check, scaling and error messages as the built-in ones. Implement
+    :meth:`encode`, which receives features that have already been counted and
+    scaled:
+
+    ::
+
+        from jax.tree_util import register_pytree_node_class
+        from qrisp import ry
+        from qrisp.jasp import jrange
+        from qrisp.qml import Encoding
+
+        @register_pytree_node_class
+        class DoubleAngleEncoding(Encoding):
+            def encode(self, qv, x):
+                for i in jrange(qv.size):
+                    ry(2 * x[i], qv[i])
+                return qv
+
+        encoding = DoubleAngleEncoding(n_features=2)
+
+    Registering the class as a PyTree lets it be passed as an argument to a
+    traced function rather than only captured from the enclosing scope. Settings
+    of your own are kept across that roundtrip by returning them from
+    ``_options``.
+
     """
 
     def __init__(self, n_features, scaling=None):
@@ -756,7 +784,7 @@ class Encoding:
                 f"Tried to encode {num_features} features with an encoder configured for {self.n_features}."
             )
 
-        return self._encode(qv, self._prepare(x))
+        return self.encode(qv, self._prepare(x))
 
     def tree_flatten(self):
         """
@@ -780,6 +808,35 @@ class Encoding:
             setattr(encoding, name, value)
 
         return encoding
+
+    def encode(self, qv, x):
+        """
+        Emits the gates encoding one sample.
+
+        Subclasses implement this to define their encoding. It is called by
+        :meth:`apply`, which has already rejected a feature vector of the wrong
+        length and applied any configured scaling, so an implementation can
+        rely on ``x`` holding exactly ``n_features`` scaled features.
+
+        Parameters
+        ----------
+        qv : QuantumVariable
+            The QuantumVariable to encode the features into. Under tracing its
+            size is a tracer, so it cannot be compared against ``n_features``
+            or used to size an allocation. Loop over it with
+            :ref:`jrange <jrange>` rather than ``range(len(qv))``.
+        x : list[float] or numpy.ndarray
+            The feature vector, holding ``n_features`` features.
+
+        Returns
+        -------
+        QuantumVariable
+            The QuantumVariable the features were encoded into.
+
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement encode, which an encoding needs in order to emit its gates."
+        )
 
     def _options(self):
         """
@@ -818,7 +875,7 @@ class _AngleEncoding(Encoding):
     def _options(self):
         return {"axis": self.axis, "prepare_basis": self.prepare_basis}
 
-    def _encode(self, qv, x):
+    def encode(self, qv, x):
         return _angle_encoding(qv, x, axis=self.axis, prepare_basis=self.prepare_basis)
 
 
@@ -827,13 +884,13 @@ class _AmplitudeEncoding(Encoding):
     def _options(self):
         return {"pad": self.pad}
 
-    def _encode(self, qv, x):
+    def encode(self, qv, x):
         return _amplitude_encoding(qv, x, pad=self.pad)
 
 
 @register_pytree_node_class
 class _DenseAngleEncoding(Encoding):
-    def _encode(self, qv, x):
+    def encode(self, qv, x):
         return _dense_angle_encoding(qv, x)
 
 
@@ -847,5 +904,5 @@ class _BasisEncoding(Encoding):
         # a zero bit, which is what an out-of-range value would otherwise mean.
         return (jnp.asarray(x) > self.threshold).astype(int)
 
-    def _encode(self, qv, x):
+    def encode(self, qv, x):
         return _basis_encoding(qv, x)

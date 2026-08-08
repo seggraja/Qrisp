@@ -18,6 +18,7 @@
 
 import jax.numpy as jnp
 import numpy as np
+from jax.tree_util import register_pytree_node_class
 
 from qrisp.core.gate_application_functions import cx, cz, rx, ry, rz
 from qrisp.jasp import check_for_tracing_mode, jrange
@@ -376,7 +377,19 @@ def hardware_efficient_size(num_qubits, layers=1, rotations=("y",)):
 
         w = np.random.uniform(0, 2 * np.pi, hardware_efficient_size(3, layers=2))
 
+    Raises
+    ------
+    ValueError
+        If an axis is repeated in ``rotations``.
+
     """
+    if len(set(rotations)) != len(rotations):
+        raise ValueError(
+            f"Repeated rotation axis in {tuple(rotations)} for the hardware efficient ansatz. "
+            f"Consecutive rotations about the same axis compose into a single one, "
+            f"so the repetition adds parameters the circuit cannot use."
+        )
+
     return (layers + 1) * len(rotations) * num_qubits
 
 
@@ -422,9 +435,42 @@ class Ansatz:
     configured for three qubits to a register of four is not reported. Keeping
     the two in step is left to the caller.
 
+    **Writing an ansatz**
+
+    Subclassing this class gives an ansatz of your own the same parameter count
+    check and error messages as the built-in ones. Implement
+    :meth:`apply_gates` to emit the circuit, and :meth:`parameter_count` so that
+    the number of parameters follows from the register size rather than being
+    restated at every construction:
+
+    ::
+
+        from jax.tree_util import register_pytree_node_class
+        from qrisp import ry
+        from qrisp.jasp import jrange
+        from qrisp.qml import Ansatz
+
+        @register_pytree_node_class
+        class RotationAnsatz(Ansatz):
+            def parameter_count(self, num_qubits):
+                return num_qubits
+
+            def apply_gates(self, qv, w):
+                for i in jrange(qv.size):
+                    ry(w[i], qv[i])
+                return qv
+
+        ansatz = RotationAnsatz(num_qubits=3)
+
+    ``num_parameters`` is then derived on construction, and ``apply`` rejects a
+    parameter vector that does not match it. Registering the class as a PyTree
+    lets it be passed as an argument to a traced function rather than only
+    captured from the enclosing scope. Settings of your own are kept across that
+    roundtrip by returning them from ``_options``.
+
     """
 
-    def __init__(self, num_qubits, num_parameters):
+    def __init__(self, num_qubits, num_parameters=None):
         if not isinstance(num_qubits, (int, np.integer)) or isinstance(num_qubits, bool):
             raise ValueError(f"Tried to configure an ansatz for {num_qubits!r} qubits, which is not an integer.")
 
@@ -432,6 +478,10 @@ class Ansatz:
             raise ValueError(f"Tried to configure an ansatz for {num_qubits} qubits.")
 
         self.num_qubits = int(num_qubits)
+
+        if num_parameters is None:
+            num_parameters = self.parameter_count(self.num_qubits)
+
         self.num_parameters = int(num_parameters)
 
     @classmethod
@@ -655,7 +705,61 @@ class Ansatz:
         """
         self._check_parameters(w)
 
-        return self._apply(qv, w)
+        return self.apply_gates(qv, w)
+
+    def apply_gates(self, qv, w):
+        """
+        Emits the gates of the ansatz.
+
+        Subclasses implement this to define their circuit. It is called by
+        :meth:`apply`, which has already rejected a parameter vector of the
+        wrong size, so an implementation can rely on ``w`` holding exactly
+        ``num_parameters`` parameters.
+
+        Parameters
+        ----------
+        qv : QuantumVariable
+            The QuantumVariable to apply the gates to. Under tracing its size
+            is a tracer, so it cannot be compared against ``num_qubits`` or
+            used to size an allocation. Loop over it with
+            :ref:`jrange <jrange>` rather than ``range(len(qv))``.
+        w : list[float] or numpy.ndarray
+            The parameters, either flat or shaped.
+
+        Returns
+        -------
+        QuantumVariable
+            The QuantumVariable the gates were applied to.
+
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement apply_gates, which an ansatz needs in order to emit its gates."
+        )
+
+    def parameter_count(self, num_qubits):
+        """
+        Returns the number of parameters the ansatz expects.
+
+        Subclasses override this so that the count follows from the register
+        size rather than being restated by the caller. It is called once,
+        during construction, and the result is available as
+        ``num_parameters``.
+
+        Parameters
+        ----------
+        num_qubits : int
+            The size the ansatz is configured for, as an ordinary integer.
+
+        Returns
+        -------
+        int
+            The number of parameters.
+
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} neither implements parameter_count nor was "
+            f"given a num_parameters, so the number of parameters it expects is unknown."
+        )
 
     def _check_parameters(self, w):
         """
@@ -671,6 +775,35 @@ class Ansatz:
                 f"with {np.size(w)} parameters. Expected {self.num_parameters}."
             )
 
+    def tree_flatten(self):
+        """
+        PyTree flatten for JAX.
+
+        The configuration is auxiliary data rather than a child, so that
+        ``num_qubits`` and ``num_parameters`` stay plain integers that the
+        trace time check can compare against.
+        """
+        return (), (self.num_qubits, self.num_parameters, self._options())
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        """
+        PyTree unflatten for JAX.
+        """
+        num_qubits, num_parameters, options = aux_data
+        ansatz = cls(num_qubits, num_parameters)
+
+        for name, value in options.items():
+            setattr(ansatz, name, value)
+
+        return ansatz
+
+    def _options(self):
+        """
+        Returns the per-ansatz settings, which subclasses set after building.
+        """
+        return {}
+
 
 def _check_layers(layers, name):
     """
@@ -683,17 +816,29 @@ def _check_layers(layers, name):
         raise ValueError(f"Tried to configure a {name} ansatz with a negative layer count ({layers}).")
 
 
+@register_pytree_node_class
 class _HardwareEfficient(Ansatz):
-    def _apply(self, qv, w):
+    def _options(self):
+        return {"layers": self.layers, "rotations": self.rotations, "entangler": self.entangler}
+
+    def apply_gates(self, qv, w):
         return _hardware_efficient(qv, w, layers=self.layers, rotations=self.rotations, entangler=self.entangler)
 
 
+@register_pytree_node_class
 class _RealAmplitudes(Ansatz):
-    def _apply(self, qv, w):
+    def _options(self):
+        return {"layers": self.layers, "entanglement": self.entanglement}
+
+    def apply_gates(self, qv, w):
         return _real_amplitudes(qv, w, layers=self.layers, entanglement=self.entanglement)
 
 
+@register_pytree_node_class
 class _DataReuploading(Ansatz):
+    def _options(self):
+        return {"layers": self.layers, "encoding": self.encoding, "ansatz": self.ansatz}
+
     def apply(self, qv, w, x):
         """
         Applies alternating encoding and ansatz layers to ``qv``.

@@ -21,9 +21,10 @@ from functools import partial
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from jax.tree_util import register_pytree_node_class
 
-from qrisp import QuantumFloat, measure
-from qrisp.jasp import jaspify
+from qrisp import QuantumFloat, measure, ry
+from qrisp.jasp import jaspify, jrange
 from qrisp.qml import (
     Ansatz,
     Encoding,
@@ -345,3 +346,114 @@ def test_ansatzes_reject_negative_layers(constructor):
     """
     with pytest.raises(ValueError, match="negative"):
         constructor(num_qubits=3, layers=-1)
+
+
+@register_pytree_node_class
+class RotationAnsatz(Ansatz):
+    """
+    A minimal user written ansatz, built only from the documented hooks.
+    """
+
+    def parameter_count(self, num_qubits):
+        return num_qubits
+
+    def apply_gates(self, qv, w):
+        for i in jrange(qv.size):
+            ry(w[i], qv[i])
+        return qv
+
+
+def test_subclass_derives_its_parameter_count():
+    """
+    parameter_count exists so that a subclass author does not restate a number
+    the ansatz can work out. Were num_parameters left to the caller it could
+    silently disagree with the circuit apply_gates actually emits.
+    """
+    assert RotationAnsatz(num_qubits=3).num_parameters == 3
+
+
+def test_subclass_inherits_the_traced_parameter_check():
+    """
+    The check on the base class is the reason for subclassing rather than
+    writing a bare function. Under tracing a short vector is read past its end
+    by reusing its last value, so without this the wrong circuit runs silently.
+    """
+    ansatz = RotationAnsatz(num_qubits=2)
+
+    @jaspify
+    def main(w):
+        qf = QuantumFloat(2)
+        ansatz.apply(qf, w)
+        return measure(qf)
+
+    with pytest.raises(ValueError, match="Expected 2"):
+        main(jnp.zeros(5))
+
+
+def test_subclass_emits_its_gates_under_tracing():
+    """
+    apply_gates is documented as the hook a subclass implements, so the gates it
+    emits have to survive tracing. RY(pi) on both qubits gives |11>.
+    """
+    ansatz = RotationAnsatz(num_qubits=2)
+
+    @jaspify
+    def main(w):
+        qf = QuantumFloat(2)
+        ansatz.apply(qf, w)
+        return measure(qf)
+
+    assert main(jnp.full(2, jnp.pi)) == 3
+
+
+@pytest.mark.parametrize(
+    "ansatz",
+    [
+        Ansatz.real_amplitudes(num_qubits=2, layers=0),
+        RotationAnsatz(num_qubits=2),
+    ],
+    ids=["builtin", "subclass"],
+)
+def test_ansatzes_can_be_passed_as_traced_arguments(ansatz):
+    """
+    An unregistered object cannot cross into a traced function as an argument at
+    all, only as a closure. Registering the PyTree keeps num_qubits and
+    num_parameters plain integers, so the trace time check still has something
+    to compare against.
+    """
+
+    @jaspify
+    def main(a, w):
+        qf = QuantumFloat(2)
+        a.apply(qf, w)
+        return measure(qf)
+
+    assert main(ansatz, jnp.full(2, jnp.pi)) == 3
+
+
+def test_ansatz_without_hooks_reports_what_is_missing():
+    """
+    A subclass missing both parameter_count and num_parameters cannot know what
+    to check against. Failing at construction names the hook, where falling
+    through to a default count would accept any parameter vector.
+    """
+
+    class Incomplete(Ansatz):
+        pass
+
+    with pytest.raises(NotImplementedError, match="parameter_count"):
+        Incomplete(num_qubits=2)
+
+
+@pytest.mark.parametrize("rotations", [("y", "y"), ("x", "y", "x")])
+def test_hardware_efficient_rejects_repeated_rotation_axes(rotations):
+    """
+    Two rotations about the same axis on the same qubit compose into a single
+    rotation with the summed angle, so a repeated axis inflates the parameter
+    count with parameters the circuit cannot use independently.
+    """
+    with pytest.raises(ValueError, match="Repeated rotation axis"):
+        Ansatz.hardware_efficient(num_qubits=3, rotations=rotations)
+
+    with pytest.raises(ValueError, match="Repeated rotation axis"):
+        hardware_efficient_size(3, rotations=rotations)

@@ -49,8 +49,9 @@ def expectation(state_prep, observables, precision=0.01):
         estimated for the state this function prepares. It can only take
         classical values as arguments, since a quantum value would have to be
         copied for each sampling iteration.
-    observables : QubitOperator or list[QubitOperator]
+    observables : QubitOperator or iterable[QubitOperator]
         The observable, or a sequence of observables to estimate separately.
+        Any iterable is accepted, including a numpy array of operators.
     precision : float, optional
         The precision with which each expectation value is estimated. The
         number of shots scales quadratically with the inverse precision. The
@@ -61,6 +62,11 @@ def expectation(state_prep, observables, precision=0.01):
     callable
         A function that takes the arguments of ``state_prep`` and returns the
         expectation value, or an array of one expectation value per observable.
+
+    Raises
+    ------
+    ValueError
+        If ``observables`` is an empty sequence.
 
     Examples
     --------
@@ -100,8 +106,15 @@ def expectation(state_prep, observables, precision=0.01):
     array([-1.,  1.])
 
     """
-    if not isinstance(observables, (list, tuple)):
+    # A single operator is identified by what it provides rather than by what
+    # it is, so that any iterable of observables is read as a sequence.
+    if hasattr(observables, "expectation_value"):
         return observables.expectation_value(state_prep, precision=precision)
+
+    observables = list(observables)
+
+    if not observables:
+        raise ValueError("Tried to estimate the expectation values of an empty sequence of observables.")
 
     ev_functions = [observable.expectation_value(state_prep, precision=precision) for observable in observables]
 
