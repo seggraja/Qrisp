@@ -72,11 +72,13 @@ def expectation(state_prep, observables, precision=0.01):
         import numpy as np
         from qrisp import QuantumFloat
         from qrisp.operators import Z
-        from qrisp.qml import angle_encoding, expectation
+        from qrisp.qml import Encoding, expectation
+
+        encoding = Encoding.angle(n_features=2)
 
         def state_prep(x):
             qf = QuantumFloat(2)
-            angle_encoding(qf, x)
+            encoding.apply(qf, x)
             return qf
 
         ev = expectation(state_prep, Z(0))

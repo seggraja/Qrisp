@@ -20,6 +20,7 @@ import warnings
 
 import jax.numpy as jnp
 import numpy as np
+from jax.tree_util import register_pytree_node_class
 
 from qrisp.alg_primitives.state_preparation import prepare
 from qrisp.core.gate_application_functions import h, p, rx, ry, rz
@@ -27,13 +28,9 @@ from qrisp.core.gate_application_functions import x as x_gate
 from qrisp.environments import control
 from qrisp.jasp import check_for_tracing_mode, jlen, jrange
 from qrisp.misc.exceptions import BasisPreparationWarning
+from qrisp.qml.preprocessing import _check_finite
 
-__all__ = [
-    "angle_encoding",
-    "amplitude_encoding",
-    "dense_angle_encoding",
-    "basis_encoding",
-]
+__all__ = ["Encoding"]
 
 _ROTATION_GATES = {"x": rx, "y": ry, "z": rz}
 
@@ -45,7 +42,7 @@ _AXES_REQUIRING_BASIS_PREPARATION = {"z"}
 _UNSPECIFIED = object()
 
 
-def angle_encoding(qv, x, axis="y", prepare_basis=_UNSPECIFIED):
+def _angle_encoding(qv, x, axis="y", prepare_basis=_UNSPECIFIED):
     r"""
     Encodes a feature vector into the rotation angles of a QuantumVariable.
 
@@ -129,34 +126,6 @@ def angle_encoding(qv, x, axis="y", prepare_basis=_UNSPECIFIED):
         If ``axis="z"`` and ``prepare_basis`` was not specified explicitly,
         indicating that a Hadamard gate was inserted automatically.
 
-    Examples
-    --------
-
-    We encode a two-dimensional feature vector into a :ref:`QuantumFloat`.
-
-    ::
-
-        import numpy as np
-        from qrisp import QuantumFloat
-        from qrisp.qml import angle_encoding
-
-        qf = QuantumFloat(2)
-        angle_encoding(qf, [0, np.pi])
-
-    The first feature is $0$, leaving the first qubit in $\ket{0}$. The second
-    feature is $\pi$, flipping the second qubit to $\ket{1}$. The resulting
-    state is therefore $\ket{q_0=0, q_1=1}$:
-
-    >>> qf.qs.statevector()
-    |2>
-
-    Encoding around the X axis instead:
-
-    ::
-
-        qf = QuantumFloat(2)
-        angle_encoding(qf, [0, np.pi], axis="x")
-
     """
     if axis not in _ROTATION_GATES:
         raise ValueError(
@@ -195,7 +164,7 @@ def angle_encoding(qv, x, axis="y", prepare_basis=_UNSPECIFIED):
     return qv
 
 
-def amplitude_encoding(qv, x, pad=True):
+def _amplitude_encoding(qv, x, pad=True):
     r"""
     Encodes a feature vector into the amplitudes of a QuantumVariable.
 
@@ -209,7 +178,7 @@ def amplitude_encoding(qv, x, pad=True):
 
     A register of $n$ qubits holds $2^n$ amplitudes, so amplitude encoding
     represents $2^n$ features in $n$ qubits. This exponential density is its
-    main advantage over :ref:`angle_encoding`, which requires one qubit per
+    main advantage over angle encoding, which requires one qubit per
     feature.
 
     The feature vector is normalized internally, as a quantum state must have
@@ -246,30 +215,6 @@ def amplitude_encoding(qv, x, pad=True):
         If ``x`` holds more features than ``qv`` can represent.
     ValueError
         If ``pad`` is ``False`` and the length of ``x`` is not exactly $2^n$.
-
-    Examples
-    --------
-
-    We encode a three-dimensional feature vector into a :ref:`QuantumFloat`.
-
-    ::
-
-        import numpy as np
-        from qrisp import QuantumFloat
-        from qrisp.qml import amplitude_encoding
-
-        qf = QuantumFloat(2)
-        amplitude_encoding(qf, [1, 2, 3])
-
-    Two qubits hold four amplitudes, so the vector is padded to $(1,2,3,0)$ and
-    normalized by $\sqrt{14}$, giving the feature $x_i$ as the amplitude of
-    $\ket{i}$:
-
-    >>> np.round(qf.qs.statevector("array"), 4)
-    array([0.2673, 0.8018, 0.5345, 0.])
-
-    Note that ``statevector("array")`` is indexed in reverse bit order, so the
-    amplitude of $\ket{i}$ is not at index $i$ of that array.
 
     """
     tracing = check_for_tracing_mode()
@@ -318,7 +263,7 @@ def _next_power_of_two(n):
     return 1 << (n - 1).bit_length()
 
 
-def dense_angle_encoding(qv, x):
+def _dense_angle_encoding(qv, x):
     r"""
     Encodes two features per qubit into a rotation angle and a relative phase.
 
@@ -331,7 +276,7 @@ def dense_angle_encoding(qv, x):
         \cos(x_{2i}/2)\ket{0} + e^{ix_{2i+1}}\sin(x_{2i}/2)\ket{1}.
 
     This halves the number of qubits required compared to
-    :ref:`angle_encoding`, which places one feature per qubit. A register of
+    angle encoding, which places one feature per qubit. A register of
     $n$ qubits therefore holds $2n$ features.
 
     A feature vector of odd length leaves the last qubit without a phase
@@ -349,20 +294,6 @@ def dense_angle_encoding(qv, x):
     ------
     ValueError
         If ``x`` holds more than two features per qubit of ``qv``.
-
-    Examples
-    --------
-
-    We encode a four-dimensional feature vector into two qubits.
-
-    ::
-
-        import numpy as np
-        from qrisp import QuantumFloat
-        from qrisp.qml import dense_angle_encoding
-
-        qf = QuantumFloat(2)
-        dense_angle_encoding(qf, [np.pi / 2, np.pi, np.pi / 2, 0])
 
     """
     if not check_for_tracing_mode() and jlen(x) > 2 * qv.size:
@@ -383,7 +314,7 @@ def dense_angle_encoding(qv, x):
     return qv
 
 
-def basis_encoding(qv, x):
+def _basis_encoding(qv, x):
     r"""
     Encodes a vector of bits into a computational basis state.
 
@@ -395,7 +326,7 @@ def basis_encoding(qv, x):
 
     Basis encoding requires one qubit per bit and represents the feature vector
     exactly, without normalization or rescaling. In contrast to
-    :ref:`angle_encoding` and :ref:`amplitude_encoding`, the features must be
+    angle and amplitude encoding, the features must be
     binary.
 
     Parameters
@@ -414,22 +345,6 @@ def basis_encoding(qv, x):
     ValueError
         If ``x`` holds a value other than 0 or 1.
 
-    Examples
-    --------
-
-    We encode a bit vector into a :ref:`QuantumFloat`.
-
-    ::
-
-        from qrisp import QuantumFloat
-        from qrisp.qml import basis_encoding
-
-        qf = QuantumFloat(3)
-        basis_encoding(qf, [1, 0, 1])
-
-    >>> qf.qs.statevector()
-    |5>
-
     """
     if not check_for_tracing_mode():
         if jlen(x) != qv.size:
@@ -446,3 +361,491 @@ def basis_encoding(qv, x):
             x_gate(qv[i])
 
     return qv
+
+
+def _derive_range(data, data_range, feature_range):
+    """
+    Returns the affine map onto ``feature_range`` as a (scale, offset) pair.
+
+    Runs outside the traced region, where every value is concrete, so the pair
+    it returns are plain floats that the encoder carries into the trace.
+    """
+    if data is not None and data_range is not None:
+        raise ValueError(
+            "Tried to configure an encoder with both data and data_range. Pass "
+            "data to derive the range from a dataset, or data_range to state it "
+            "directly, but not both."
+        )
+
+    low, high = feature_range
+
+    if not high > low:
+        raise ValueError(f"Tried to scale into an empty feature range ({low}, {high}).")
+
+    if high - low > 2 * np.pi:
+        raise ValueError(
+            f"Tried to scale into the feature range ({low}, {high}), which is "
+            "longer than 2*pi. Rotation angles are 2*pi-periodic, so its "
+            "endpoints would encode to the same state."
+        )
+
+    if data is not None:
+        data = np.asarray(data, dtype=float)
+
+        if data.ndim != 2:
+            raise ValueError(
+                f"Tried to derive a scaling range from data shaped {data.shape}. "
+                "The range is taken across samples, so the data must be a "
+                "two-dimensional array shaped (n_samples, n_features)."
+            )
+
+        _check_finite(data, "scale")
+        minimum = data.min(axis=0)
+        maximum = data.max(axis=0)
+    else:
+        minimum, maximum = (np.asarray(bound, dtype=float) for bound in data_range)
+
+        if not np.all(maximum >= minimum):
+            raise ValueError(f"Tried to configure an encoder with the empty data range ({minimum}, {maximum}).")
+
+    spread = maximum - minimum
+
+    # A constant feature spans nothing to scale onto the range, so it is mapped
+    # to the lower bound instead of dividing by zero.
+    constant = spread == 0
+    spread = np.where(constant, 1.0, spread)
+
+    scale = np.where(constant, 0.0, (high - low) / spread)
+    offset = low - scale * minimum
+
+    return scale, offset
+
+
+class Encoding:
+    r"""
+    A configured feature encoder.
+
+    An encoder is built once per dataset and called once per sample. The
+    classmethods :meth:`angle`, :meth:`amplitude`, :meth:`dense_angle` and
+    :meth:`basis` each return one, configured for a given number of features:
+
+    ::
+
+        from qrisp import QuantumFloat
+        from qrisp.jasp import jaspify
+        from qrisp.qml import Encoding
+
+        encoding = Encoding.angle(n_features=2, data=X)
+
+        @jaspify
+        def circuit(x):
+            qf = QuantumFloat(2)
+            encoding.apply(qf, x)
+            return qf
+
+    **Why the feature count is configured up front**
+
+    Under :ref:`Jasp <jasp>` tracing a QuantumVariable's size is a tracer rather
+    than a number, so an encoding cannot compare it against the features it was
+    handed. Without a check, Jax reads past the end of a short feature vector by
+    reusing its last value, which produces a plausible looking state rather than
+    an error.
+
+    Recording ``n_features`` while it is still an ordinary integer closes that
+    gap: the number crosses into the traced region intact, and the length of
+    each sample is available there as a static shape. The comparison therefore
+    happens at trace time, before a single gate is emitted, and costs nothing
+    while the program runs.
+
+    **Register width is the caller's responsibility**
+
+    The encoder validates the features it is given. It cannot validate the
+    register, whose size is the tracer described above. A register wider than
+    ``n_features`` silently reuses the last feature on the surplus qubits, and
+    no error is raised. Keeping ``n_features`` and the register in step is left
+    to the caller.
+
+    **Optional preprocessing**
+
+    Passing ``data`` or ``data_range`` bundles the scaling each encoding expects
+    into the call, so that features are scaled and encoded in one step. Passing
+    neither encodes the features exactly as given, for callers whose data is
+    already scaled. The feature count is checked either way.
+
+    The scaling is derived once, from the dataset rather than from each sample,
+    so training and test data are placed on the same scale. Only the derived
+    range is retained; ``data`` itself is not.
+
+    """
+
+    def __init__(self, n_features, scaling=None):
+        if not isinstance(n_features, (int, np.integer)) or isinstance(n_features, bool):
+            raise ValueError(f"Tried to configure an encoder for {n_features!r} features, which is not an integer.")
+
+        if n_features < 1:
+            raise ValueError(f"Tried to configure an encoder for {n_features} features.")
+
+        self.n_features = int(n_features)
+        self.scaling = scaling
+
+    @classmethod
+    def angle(
+        cls, n_features, data=None, data_range=None, feature_range=(0.0, np.pi), axis="y", prepare_basis=_UNSPECIFIED
+    ):
+        r"""
+        Returns an encoder placing one feature in each qubit's rotation angle.
+
+        Encoding requires one qubit per feature. See :func:`minmax_scale
+        <qrisp.qml.minmax_scale>` for why the features are scaled into an
+        interval shorter than a full turn.
+
+        Parameters
+        ----------
+        n_features : int
+            The number of features each sample holds.
+        data : numpy.ndarray, optional
+            Features shaped ``(n_samples, n_features)`` to derive the scaling
+            range from. Mutually exclusive with ``data_range``. The default is
+            ``None``, in which case no scaling is applied.
+        data_range : tuple, optional
+            The ``(minimum, maximum)`` of the features, stated directly instead
+            of derived from data. Either bound may be a scalar or one value per
+            feature. Mutually exclusive with ``data``.
+        feature_range : tuple[float, float], optional
+            The interval to scale into, if a scaling was requested. The default
+            is ``(0, numpy.pi)``.
+        axis : {'x', 'y', 'z'}, optional
+            The rotation axis. The default is ``'y'``, which maps real-valued
+            features to real-valued amplitudes.
+        prepare_basis : bool, optional
+            Whether to apply a Hadamard gate to each qubit before the rotation.
+            This is only relevant for ``axis="z"``: :math:`R_Z` acts trivially
+            on :math:`\ket{0}` up to a global phase, so without a basis change
+            the encoded features would have no observable effect. The default is
+            to apply the basis change and emit a
+            :class:`BasisPreparationWarning`.
+
+        Returns
+        -------
+        Encoding
+            The configured encoder.
+
+        Examples
+        --------
+
+        ::
+
+            import numpy as np
+            from qrisp import QuantumFloat
+            from qrisp.qml import Encoding
+
+            qf = QuantumFloat(2)
+            encoding = Encoding.angle(n_features=2)
+            encoding.apply(qf, [0, np.pi])
+
+        The first feature is $0$, leaving the first qubit in $\ket{0}$. The
+        second is $\pi$, flipping the second qubit to $\ket{1}$:
+
+        >>> qf.qs.statevector()
+        |2>
+
+        """
+        if axis not in _ROTATION_GATES:
+            raise ValueError(
+                f"Unknown rotation axis '{axis}' for angle encoding. Supported axes are {sorted(_ROTATION_GATES)}."
+            )
+
+        encoding = _AngleEncoding(n_features, _scaling(data, data_range, feature_range))
+        encoding.axis = axis
+        encoding.prepare_basis = prepare_basis
+
+        return encoding
+
+    @classmethod
+    def amplitude(cls, n_features, data=None, data_range=None, feature_range=(0.0, np.pi), pad=True):
+        r"""
+        Returns an encoder placing the features in a register's amplitudes.
+
+        A register of $n$ qubits holds $2^n$ amplitudes, so this encoding
+        represents $2^n$ features in $n$ qubits. The features are normalized
+        internally, as a quantum state has unit norm, so only their direction is
+        encoded.
+
+        **Cost under tracing**
+
+        Amplitude encoding builds an arbitrary state rather than one rotation
+        per qubit, and the traced path falls back to a general state
+        preparation. It is roughly two orders of magnitude slower per call than
+        angle encoding, which dominates a training run: an optimization that
+        takes seconds with angle encoding takes tens of minutes with this one.
+
+        Parameters
+        ----------
+        n_features : int
+            The number of features each sample holds.
+        data : numpy.ndarray, optional
+            Features shaped ``(n_samples, n_features)`` to derive the scaling
+            range from. Mutually exclusive with ``data_range``. The default is
+            ``None``, in which case no scaling is applied.
+        data_range : tuple, optional
+            The ``(minimum, maximum)`` of the features, stated directly instead
+            of derived from data. Mutually exclusive with ``data``.
+        feature_range : tuple[float, float], optional
+            The interval to scale into, if a scaling was requested. The default
+            is ``(0, numpy.pi)``.
+        pad : bool, optional
+            Whether to zero-pad the feature vector up to $2^n$ entries. The
+            default is ``True``. If ``False``, ``n_features`` must be exactly
+            $2^n$.
+
+        Returns
+        -------
+        Encoding
+            The configured encoder.
+
+        Examples
+        --------
+
+        ::
+
+            import numpy as np
+            from qrisp import QuantumFloat
+            from qrisp.qml import Encoding
+
+            qf = QuantumFloat(2)
+            encoding = Encoding.amplitude(n_features=3)
+            encoding.apply(qf, [1, 2, 3])
+
+        Two qubits hold four amplitudes, so the vector is padded to $(1,2,3,0)$
+        and normalized by $\sqrt{14}$:
+
+        >>> np.round(qf.qs.statevector("array"), 4)
+        array([0.2673, 0.8018, 0.5345, 0.])
+
+        """
+        encoding = _AmplitudeEncoding(n_features, _scaling(data, data_range, feature_range))
+        encoding.pad = pad
+
+        return encoding
+
+    @classmethod
+    def dense_angle(cls, n_features, data=None, data_range=None, feature_range=(0.0, np.pi)):
+        r"""
+        Returns an encoder placing two features in each qubit.
+
+        Consecutive pairs of features are encoded into one qubit each, as a $Y$
+        rotation and a relative phase, so a register of $n$ qubits holds $2n$
+        features. An odd feature count leaves the last qubit without a phase.
+
+        Parameters
+        ----------
+        n_features : int
+            The number of features each sample holds.
+        data : numpy.ndarray, optional
+            Features shaped ``(n_samples, n_features)`` to derive the scaling
+            range from. Mutually exclusive with ``data_range``. The default is
+            ``None``, in which case no scaling is applied.
+        data_range : tuple, optional
+            The ``(minimum, maximum)`` of the features, stated directly instead
+            of derived from data. Mutually exclusive with ``data``.
+        feature_range : tuple[float, float], optional
+            The interval to scale into, if a scaling was requested. The default
+            is ``(0, numpy.pi)``.
+
+        Returns
+        -------
+        Encoding
+            The configured encoder.
+
+        Examples
+        --------
+
+        ::
+
+            import numpy as np
+            from qrisp import QuantumFloat
+            from qrisp.qml import Encoding
+
+            qf = QuantumFloat(2)
+            encoding = Encoding.dense_angle(n_features=4)
+            encoding.apply(qf, [np.pi / 2, np.pi, np.pi / 2, 0])
+
+        """
+        return _DenseAngleEncoding(n_features, _scaling(data, data_range, feature_range))
+
+    @classmethod
+    def basis(cls, n_features, threshold=0.0):
+        r"""
+        Returns an encoder placing one bit in each qubit.
+
+        The $i$-th bit is encoded into the $i$-th qubit, preparing the basis
+        state $\ket{x_0 x_1 \dotsm x_{n-1}}$, so encoding requires one qubit per
+        bit.
+
+        **Features are binarized**
+
+        Basis encoding is defined for the values 0 and 1 alone. Rather than
+        rejecting anything else, this encoder binarizes what it is given: a
+        feature above ``threshold`` becomes ``1`` and a feature at or below it
+        becomes ``0``. Continuous features are therefore accepted, and reach the
+        qubits reduced to bits rather than unchanged.
+
+        Parameters
+        ----------
+        n_features : int
+            The number of features each sample holds.
+        threshold : float, optional
+            The value a feature has to exceed to become ``1``. The default is
+            ``0.0``.
+
+        Returns
+        -------
+        Encoding
+            The configured encoder.
+
+        Examples
+        --------
+
+        ::
+
+            from qrisp import QuantumFloat
+            from qrisp.qml import Encoding
+
+            qf = QuantumFloat(3)
+            encoding = Encoding.basis(n_features=3)
+            encoding.apply(qf, [1, 0, 1])
+
+        >>> qf.qs.statevector()
+        |5>
+
+        """
+        encoding = _BasisEncoding(n_features)
+        encoding.threshold = threshold
+
+        return encoding
+
+    def apply(self, qv, x):
+        """
+        Encodes one sample into ``qv``.
+
+        Parameters
+        ----------
+        qv : QuantumVariable
+            The QuantumVariable to encode the features into. Its size is not
+            validated; see the note on register width in the class docstring.
+        x : list[float] or numpy.ndarray
+            The feature vector, holding ``n_features`` features.
+
+        Returns
+        -------
+        QuantumVariable
+            The QuantumVariable the features were encoded into.
+
+        Raises
+        ------
+        ValueError
+            If ``x`` does not hold exactly ``n_features`` features.
+
+        """
+        # jnp.shape is static under tracing, so unlike qv.size this comparison
+        # also runs inside a traced program, where the bug it catches lives.
+        num_features = jnp.shape(jnp.asarray(x))[0]
+
+        if num_features != self.n_features:
+            raise ValueError(
+                f"Tried to encode {num_features} features with an encoder configured for {self.n_features}."
+            )
+
+        return self._encode(qv, self._prepare(x))
+
+    def tree_flatten(self):
+        """
+        PyTree flatten for JAX.
+
+        The configuration is auxiliary data rather than a child, so that
+        ``n_features`` stays a plain integer that the trace time check can
+        compare against.
+        """
+        return (), (self.n_features, self.scaling, self._options())
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        """
+        PyTree unflatten for JAX.
+        """
+        n_features, scaling, options = aux_data
+        encoding = cls(n_features, scaling)
+
+        for name, value in options.items():
+            setattr(encoding, name, value)
+
+        return encoding
+
+    def _options(self):
+        """
+        Returns the per-encoding settings, which subclasses set after building.
+        """
+        return {}
+
+    def _prepare(self, x):
+        """
+        Applies the configured scaling, or returns the features untouched.
+        """
+        if self.scaling is None:
+            return x
+
+        scale, offset, (low, high) = self.scaling
+
+        # Clipping matches minmax_scale: a sample outside the configured range
+        # would otherwise leave the interval the encoding expects.
+        return jnp.clip(scale * jnp.asarray(x, dtype=float) + offset, low, high)
+
+
+def _scaling(data, data_range, feature_range):
+    """
+    Returns the affine map onto ``feature_range``, or None if none was requested.
+    """
+    if data is None and data_range is None:
+        return None
+
+    scale, offset = _derive_range(data, data_range, feature_range)
+
+    return scale, offset, feature_range
+
+
+@register_pytree_node_class
+class _AngleEncoding(Encoding):
+    def _options(self):
+        return {"axis": self.axis, "prepare_basis": self.prepare_basis}
+
+    def _encode(self, qv, x):
+        return _angle_encoding(qv, x, axis=self.axis, prepare_basis=self.prepare_basis)
+
+
+@register_pytree_node_class
+class _AmplitudeEncoding(Encoding):
+    def _options(self):
+        return {"pad": self.pad}
+
+    def _encode(self, qv, x):
+        return _amplitude_encoding(qv, x, pad=self.pad)
+
+
+@register_pytree_node_class
+class _DenseAngleEncoding(Encoding):
+    def _encode(self, qv, x):
+        return _dense_angle_encoding(qv, x)
+
+
+@register_pytree_node_class
+class _BasisEncoding(Encoding):
+    def _options(self):
+        return {"threshold": self.threshold}
+
+    def _prepare(self, x):
+        # Coercing rather than rejecting keeps a stray value from being read as
+        # a zero bit, which is what an out-of-range value would otherwise mean.
+        return (jnp.asarray(x) > self.threshold).astype(int)
+
+    def _encode(self, qv, x):
+        return _basis_encoding(qv, x)

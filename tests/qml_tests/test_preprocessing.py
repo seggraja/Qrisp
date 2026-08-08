@@ -20,7 +20,7 @@ import numpy as np
 import pytest
 
 from qrisp import QuantumFloat
-from qrisp.qml import amplitude_encoding, basis_encoding, binarize, minmax_scale, normalize
+from qrisp.qml import Encoding, binarize, minmax_scale, normalize
 
 
 def test_minmax_scale_spans_the_feature_range():
@@ -117,17 +117,18 @@ def test_normalize_scales_each_sample_separately():
 
 def test_normalize_preserves_the_encoded_state():
     """
-    amplitude_encoding normalizes internally, so encoding the normalized
+    Amplitude encoding normalizes internally, so encoding the normalized
     features prepares the same state as encoding the raw ones. This is the
     property that makes the magnitude unrecoverable from the circuit.
     """
     features = np.array([1.0, 2.0, 3.0, 4.0])
+    encoding = Encoding.amplitude(n_features=4)
 
     raw = QuantumFloat(2)
-    amplitude_encoding(raw, features)
+    encoding.apply(raw, features)
 
     scaled = QuantumFloat(2)
-    amplitude_encoding(scaled, normalize(features))
+    encoding.apply(scaled, normalize(features))
 
     assert np.allclose(
         np.array(raw.qs.statevector("array"), dtype=complex),
@@ -157,13 +158,13 @@ def test_binarize_splits_at_the_threshold(features, threshold, expected):
 
 def test_binarize_output_is_accepted_by_basis_encoding():
     """
-    basis_encoding rejects anything but the values 0 and 1, so the point of
-    binarize is that its output encodes without further work.
+    Basis encoding is defined for the values 0 and 1, so binarizing beforehand
+    makes explicit in the data what the encoding would otherwise coerce.
     """
     bits = binarize(np.array([0.8, -0.2, 1.5]))
 
     qf = QuantumFloat(3)
-    basis_encoding(qf, bits)
+    Encoding.basis(n_features=3).apply(qf, bits)
 
     # Bits (1, 0, 1) with qubit 0 as the least significant bit is the state |5>.
     assert qf.get_measurement() == {5: 1.0}

@@ -25,11 +25,9 @@ import pytest
 from qrisp import QuantumFloat, measure
 from qrisp.jasp import jaspify
 from qrisp.qml import (
-    angle_encoding,
-    data_reuploading,
-    hardware_efficient,
+    Ansatz,
+    Encoding,
     hardware_efficient_size,
-    real_amplitudes,
     real_amplitudes_size,
 )
 
@@ -60,12 +58,13 @@ def test_hardware_efficient_accepts_flat_and_shaped_parameters():
     or shaped as (layers + 1, len(rotations), n).
     """
     w = np.linspace(0.1, 0.9, 9)
+    ansatz = Ansatz.hardware_efficient(num_qubits=3, layers=2)
 
     qf_flat = QuantumFloat(3)
-    hardware_efficient(qf_flat, w, layers=2)
+    ansatz.apply(qf_flat, w)
 
     qf_shaped = QuantumFloat(3)
-    hardware_efficient(qf_shaped, w.reshape(3, 1, 3), layers=2)
+    ansatz.apply(qf_shaped, w.reshape(3, 1, 3))
 
     assert np.allclose(statevector_array(qf_flat), statevector_array(qf_shaped))
 
@@ -76,7 +75,7 @@ def test_hardware_efficient_zero_parameters_is_identity():
     trivially on |0>.
     """
     qf = QuantumFloat(3)
-    hardware_efficient(qf, np.zeros(9), layers=2)
+    Ansatz.hardware_efficient(num_qubits=3, layers=2).apply(qf, np.zeros(9))
 
     expected = np.zeros(8, dtype=complex)
     expected[0] = 1.0
@@ -92,7 +91,7 @@ def test_hardware_efficient_single_qubit_matches_rotation_product():
     w = np.array([0.3, 0.7, 1.1])
 
     qf = QuantumFloat(1)
-    hardware_efficient(qf, w, layers=2)
+    Ansatz.hardware_efficient(num_qubits=1, layers=2).apply(qf, w)
 
     total = w.sum()
     expected = np.array([np.cos(total / 2), np.sin(total / 2)])
@@ -109,7 +108,7 @@ def test_hardware_efficient_entangler_creates_entanglement():
     w[0] = np.pi / 2
 
     qf = QuantumFloat(2)
-    hardware_efficient(qf, w, layers=1)
+    Ansatz.hardware_efficient(num_qubits=2, layers=1).apply(qf, w)
 
     # |00> and |11> are populated, the anticorrelated states are not.
     amplitudes = np.abs(statevector_array(qf))
@@ -125,36 +124,40 @@ def test_hardware_efficient_entanglers_differ():
     states = []
     for entangler in ["cx", "cz"]:
         qf = QuantumFloat(4)
-        hardware_efficient(qf, w, layers=1, entangler=entangler)
+        Ansatz.hardware_efficient(num_qubits=4, layers=1, entangler=entangler).apply(qf, w)
         states.append(statevector_array(qf))
 
     assert not np.allclose(*states)
 
 
 @pytest.mark.parametrize(
-    "w, kwargs, match",
+    "kwargs, match",
     [
-        (np.zeros(7), {"layers": 2}, "Expected 9 parameters"),
-        (np.zeros(6), {"rotations": ("w",)}, "Unknown rotation axis"),
-        (np.zeros(6), {"entangler": "swap"}, "Unknown entangler"),
+        ({"rotations": ("w",)}, "Unknown rotation axis"),
+        ({"entangler": "swap"}, "Unknown entangler"),
     ],
 )
-def test_hardware_efficient_rejects_invalid_arguments(w, kwargs, match):
-    """
-    The parameter count is determined by the qubits, layers and rotations, and
-    the rotation axes and entanglers are restricted to the supported gates.
-    """
+def test_hardware_efficient_rejects_invalid_arguments(kwargs, match):
+    """The rotation axes and entanglers are restricted to the supported gates."""
     with pytest.raises(ValueError, match=match):
-        hardware_efficient(QuantumFloat(3), w, **kwargs)
+        Ansatz.hardware_efficient(num_qubits=3, **kwargs)
+
+
+def test_hardware_efficient_rejects_the_wrong_parameter_count():
+    """The parameter count is determined by the qubits, layers and rotations."""
+    with pytest.raises(ValueError, match="Expected 9"):
+        Ansatz.hardware_efficient(num_qubits=3, layers=2).apply(QuantumFloat(3), np.zeros(7))
 
 
 def test_hardware_efficient_traces():
     """The ansatz is compatible with the Jasp tracing path."""
 
+    ansatz = Ansatz.hardware_efficient(num_qubits=2, layers=1)
+
     @jaspify
     def main(w):
         qf = QuantumFloat(2)
-        hardware_efficient(qf, w, layers=1)
+        ansatz.apply(qf, w)
         return measure(qf)
 
     w = jnp.zeros(4).at[0].set(jnp.pi)
@@ -171,7 +174,7 @@ def test_real_amplitudes_keeps_amplitudes_real():
     w = np.linspace(0.1, 2.9, real_amplitudes_size(3, layers=2))
 
     qf = QuantumFloat(3)
-    real_amplitudes(qf, w, layers=2)
+    Ansatz.real_amplitudes(num_qubits=3, layers=2).apply(qf, w)
 
     assert np.allclose(statevector_array(qf).imag, 0.0)
 
@@ -185,28 +188,24 @@ def test_real_amplitudes_ring_closes_the_chain(num_qubits, extra):
     w = np.zeros(real_amplitudes_size(num_qubits))
 
     qf_linear = QuantumFloat(num_qubits)
-    real_amplitudes(qf_linear, w, entanglement="linear")
+    Ansatz.real_amplitudes(num_qubits=num_qubits, entanglement="linear").apply(qf_linear, w)
 
     qf_ring = QuantumFloat(num_qubits)
-    real_amplitudes(qf_ring, w, entanglement="ring")
+    Ansatz.real_amplitudes(num_qubits=num_qubits, entanglement="ring").apply(qf_ring, w)
 
     assert count_gates(qf_ring, "cx") == count_gates(qf_linear, "cx") + extra
 
 
-@pytest.mark.parametrize(
-    "w, kwargs, match",
-    [
-        (np.zeros(7), {"layers": 2}, "Expected 9 parameters"),
-        (np.zeros(6), {"entanglement": "full"}, "Unknown entanglement"),
-    ],
-)
-def test_real_amplitudes_rejects_invalid_arguments(w, kwargs, match):
-    """
-    The parameter count is determined by the qubits and layers, and the
-    entanglement is restricted to the supported connectivities.
-    """
-    with pytest.raises(ValueError, match=match):
-        real_amplitudes(QuantumFloat(3), w, **kwargs)
+def test_real_amplitudes_rejects_an_unknown_entanglement():
+    """The entanglement is restricted to the supported connectivities."""
+    with pytest.raises(ValueError, match="Unknown entanglement"):
+        Ansatz.real_amplitudes(num_qubits=3, entanglement="full")
+
+
+def test_real_amplitudes_rejects_the_wrong_parameter_count():
+    """The parameter count is determined by the qubits and layers."""
+    with pytest.raises(ValueError, match="Expected 9"):
+        Ansatz.real_amplitudes(num_qubits=3, layers=2).apply(QuantumFloat(3), np.zeros(7))
 
 
 @pytest.mark.parametrize("entanglement, expected", [("linear", 7), ("ring", 6)])
@@ -217,10 +216,12 @@ def test_real_amplitudes_propagates_a_flip_along_the_entanglers(entanglement, ex
     the Jasp path as well.
     """
 
+    ansatz = Ansatz.real_amplitudes(num_qubits=3, entanglement=entanglement)
+
     @jaspify
     def main(w):
         qf = QuantumFloat(3)
-        real_amplitudes(qf, w, entanglement=entanglement)
+        ansatz.apply(qf, w)
         return measure(qf)
 
     w = jnp.zeros(real_amplitudes_size(3)).at[0].set(jnp.pi)
@@ -235,10 +236,15 @@ def test_data_reuploading_encodes_once_per_layer():
     The features are re-encoded in every layer, so three layers of RY(x/3)
     accumulate to a single RY(x) on an ansatz that applies no rotation.
     """
-    per_layer = real_amplitudes_size(1)
+    reuploading = Ansatz.data_reuploading(
+        num_qubits=1,
+        encoding=Encoding.angle(n_features=1),
+        ansatz=Ansatz.real_amplitudes(num_qubits=1),
+        layers=3,
+    )
 
     qf = QuantumFloat(1)
-    data_reuploading(qf, [np.pi / 3], np.zeros(3 * per_layer), per_layer, layers=3)
+    reuploading.apply(qf, np.zeros(reuploading.num_parameters), [np.pi / 3])
 
     # Three RY(pi/3) rotations compose to RY(pi), which flips the qubit.
     assert np.allclose(np.abs(statevector_array(qf)), [0.0, 1.0], atol=1e-9)
@@ -253,11 +259,17 @@ def test_data_reuploading_uses_a_distinct_parameter_block_per_layer():
     first = np.concatenate([np.full(per_layer, 0.3), np.full(per_layer, 1.1)])
     second = np.concatenate([np.full(per_layer, 1.1), np.full(per_layer, 0.3)])
 
+    reuploading = Ansatz.data_reuploading(
+        num_qubits=2,
+        encoding=Encoding.angle(n_features=2),
+        ansatz=Ansatz.real_amplitudes(num_qubits=2),
+    )
+
     qf_first = QuantumFloat(2)
-    data_reuploading(qf_first, [0.4, 0.8], first, per_layer)
+    reuploading.apply(qf_first, first, [0.4, 0.8])
 
     qf_second = QuantumFloat(2)
-    data_reuploading(qf_second, [0.4, 0.8], second, per_layer)
+    reuploading.apply(qf_second, second, [0.4, 0.8])
 
     assert not np.allclose(statevector_array(qf_first), statevector_array(qf_second))
 
@@ -266,39 +278,46 @@ def test_data_reuploading_rejects_parameter_count_mismatch():
     """The parameters are split evenly over the layers."""
     per_layer = real_amplitudes_size(2)
 
-    with pytest.raises(ValueError, match="Expected 12 parameters"):
-        data_reuploading(QuantumFloat(2), [0.1, 0.2], np.zeros(5), per_layer, layers=3)
+    reuploading = Ansatz.data_reuploading(
+        num_qubits=2,
+        encoding=Encoding.angle(n_features=2),
+        ansatz=Ansatz.real_amplitudes(num_qubits=2),
+        layers=3,
+    )
+
+    with pytest.raises(ValueError, match="Expected 12"):
+        reuploading.apply(QuantumFloat(2), np.zeros(5), [0.1, 0.2])
 
 
 @pytest.mark.parametrize(
-    "kwargs, per_layer",
-    [
-        ({}, real_amplitudes_size(1)),
-        (
-            {"encoding": partial(angle_encoding, axis="y"), "ansatz": hardware_efficient},
-            hardware_efficient_size(1),
-        ),
-    ],
+    "ansatz",
+    [Ansatz.real_amplitudes(num_qubits=1), Ansatz.hardware_efficient(num_qubits=1)],
 )
-def test_data_reuploading_traces(kwargs, per_layer):
+def test_data_reuploading_traces(ansatz):
     """
-    The circuit is compatible with the Jasp tracing path, with the default
-    encoding and ansatz as well as with injected ones.
+    The circuit is compatible with the Jasp tracing path, for either ansatz
+    supplied as the per-layer block.
     """
+    reuploading = Ansatz.data_reuploading(
+        num_qubits=1,
+        encoding=Encoding.angle(n_features=1),
+        ansatz=ansatz,
+        layers=2,
+    )
 
     @jaspify
     def main(x, w):
         qf = QuantumFloat(1)
-        data_reuploading(qf, x, w, per_layer, layers=2, **kwargs)
+        reuploading.apply(qf, w, x)
         return measure(qf)
 
     # On a single qubit there is nothing to entangle, so with vanishing
     # parameters the two uploads of RY(pi/2) compose to RY(pi) and flip it.
-    assert main(jnp.array([jnp.pi / 2]), jnp.zeros(2 * per_layer)) == 1
+    assert main(jnp.array([jnp.pi / 2]), jnp.zeros(reuploading.num_parameters)) == 1
 
 
-@pytest.mark.parametrize("ansatz", [real_amplitudes, hardware_efficient])
-def test_ansatzes_accept_nested_list_parameters(ansatz):
+@pytest.mark.parametrize("constructor", [Ansatz.real_amplitudes, Ansatz.hardware_efficient])
+def test_ansatzes_accept_nested_list_parameters(constructor):
     """
     The docstrings promise that a shaped parameter array is read in the same
     order as the equivalent flat vector. A nested list is such a shape, so it
@@ -306,17 +325,18 @@ def test_ansatzes_accept_nested_list_parameters(ansatz):
     """
     flat = [0.3, 0.7, 1.1, 1.5, 1.9, 2.3]
     nested = [[0.3, 0.7, 1.1], [1.5, 1.9, 2.3]]
+    ansatz = constructor(num_qubits=3, layers=1)
 
     def run(w):
         qf = QuantumFloat(3)
-        ansatz(qf, w, layers=1)
+        ansatz.apply(qf, w)
         return qf.qs.statevector("array")
 
     assert np.allclose(run(nested), run(flat))
 
 
-@pytest.mark.parametrize("ansatz", [real_amplitudes, hardware_efficient])
-def test_ansatzes_reject_negative_layers(ansatz):
+@pytest.mark.parametrize("constructor", [Ansatz.real_amplitudes, Ansatz.hardware_efficient])
+def test_ansatzes_reject_negative_layers(constructor):
     """
     A negative layer count leaves the rotation loop empty, applying no gates at
     all and silently returning an untouched QuantumVariable. The parameter count
@@ -324,4 +344,4 @@ def test_ansatzes_reject_negative_layers(ansatz):
     an empty vector satisfies that.
     """
     with pytest.raises(ValueError, match="negative"):
-        ansatz(QuantumFloat(3), np.zeros(0), layers=-1)
+        constructor(num_qubits=3, layers=-1)

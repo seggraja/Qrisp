@@ -24,12 +24,7 @@ import pytest
 
 from qrisp import BasisPreparationWarning, QuantumFloat, measure
 from qrisp.jasp import jaspify
-from qrisp.qml import (
-    amplitude_encoding,
-    angle_encoding,
-    basis_encoding,
-    dense_angle_encoding,
-)
+from qrisp.qml import Encoding
 
 
 def statevector_array(qv):
@@ -58,7 +53,7 @@ def test_angle_encoding_ry_amplitudes(features):
     tensor_i (cos(x_i/2)|0> + sin(x_i/2)|1>).
     """
     qf = QuantumFloat(len(features))
-    angle_encoding(qf, features)
+    Encoding.angle(n_features=len(features)).apply(qf, features)
 
     # statevector("array") is indexed in reverse bit order, so there the first
     # feature is the most significant bit and the Kronecker product follows the
@@ -76,7 +71,7 @@ def test_angle_encoding_rx_amplitudes():
     features = [0.4, 1.1]
 
     qf = QuantumFloat(len(features))
-    angle_encoding(qf, features, axis="x")
+    Encoding.angle(n_features=len(features), axis="x").apply(qf, features)
 
     expected = np.array([1.0], dtype=complex)
     for x in features:
@@ -85,11 +80,11 @@ def test_angle_encoding_rx_amplitudes():
     assert np.allclose(statevector_array(qf), expected)
 
 
-@pytest.mark.parametrize("num_qubits, features", [(3, [0.1, 0.2]), (2, [0.1, 0.2, 0.3])])
-def test_angle_encoding_rejects_size_mismatch(num_qubits, features):
-    """Angle encoding requires exactly one qubit per feature."""
-    with pytest.raises(ValueError, match="one qubit per feature"):
-        angle_encoding(QuantumFloat(num_qubits), features)
+@pytest.mark.parametrize("n_features, features", [(3, [0.1, 0.2]), (2, [0.1, 0.2, 0.3])])
+def test_encoding_rejects_a_sample_of_the_wrong_width(n_features, features):
+    """A sample must hold exactly the feature count the encoder was configured for."""
+    with pytest.raises(ValueError, match="configured for"):
+        Encoding.angle(n_features=n_features).apply(QuantumFloat(n_features), features)
 
 
 def test_angle_encoding_z_axis_phases():
@@ -100,7 +95,7 @@ def test_angle_encoding_z_axis_phases():
     features = [0.4, 1.1]
 
     qf = QuantumFloat(len(features))
-    angle_encoding(qf, features, axis="z", prepare_basis=True)
+    Encoding.angle(n_features=len(features), axis="z", prepare_basis=True).apply(qf, features)
 
     expected = np.array([1.0], dtype=complex)
     for x in features:
@@ -117,11 +112,13 @@ def test_angle_encoding_z_axis_without_basis_preparation_is_unobservable():
     Without the basis preparation, RZ only adds a global phase to |0>, so
     different features yield the same physical state.
     """
+    encoding = Encoding.angle(n_features=1, axis="z", prepare_basis=False)
+
     qf_a = QuantumFloat(1)
-    angle_encoding(qf_a, [0.7], axis="z", prepare_basis=False)
+    encoding.apply(qf_a, [0.7])
 
     qf_b = QuantumFloat(1)
-    angle_encoding(qf_b, [3.9], axis="z", prepare_basis=False)
+    encoding.apply(qf_b, [3.9])
 
     assert np.allclose(np.abs(statevector_array(qf_a)), np.abs(statevector_array(qf_b)))
 
@@ -129,12 +126,12 @@ def test_angle_encoding_z_axis_without_basis_preparation_is_unobservable():
 def test_angle_encoding_z_axis_warns_only_when_unspecified():
     """The implicit basis preparation is announced, an explicit choice is not."""
     with pytest.warns(BasisPreparationWarning):
-        angle_encoding(QuantumFloat(2), [0.1, 0.2], axis="z")
+        Encoding.angle(n_features=2, axis="z").apply(QuantumFloat(2), [0.1, 0.2])
 
     with warnings.catch_warnings():
         warnings.simplefilter("error", BasisPreparationWarning)
-        angle_encoding(QuantumFloat(2), [0.1, 0.2], axis="z", prepare_basis=True)
-        angle_encoding(QuantumFloat(2), [0.1, 0.2], axis="z", prepare_basis=False)
+        Encoding.angle(n_features=2, axis="z", prepare_basis=True).apply(QuantumFloat(2), [0.1, 0.2])
+        Encoding.angle(n_features=2, axis="z", prepare_basis=False).apply(QuantumFloat(2), [0.1, 0.2])
 
 
 @pytest.mark.parametrize(
@@ -147,7 +144,7 @@ def test_amplitude_encoding_normalizes_and_pads(features, num_qubits):
     normalized to unit norm.
     """
     qf = QuantumFloat(num_qubits)
-    amplitude_encoding(qf, features)
+    Encoding.amplitude(n_features=len(features)).apply(qf, features)
 
     expected = np.zeros(2**num_qubits)
     expected[: len(features)] = features
@@ -161,13 +158,13 @@ def test_amplitude_encoding_normalizes_and_pads(features, num_qubits):
 def test_amplitude_encoding_rejects_oversized_feature_vector():
     """A register of n qubits cannot hold more than 2**n features."""
     with pytest.raises(ValueError, match="which holds 4 amplitudes"):
-        amplitude_encoding(QuantumFloat(2), [1.0, 2.0, 3.0, 4.0, 5.0])
+        Encoding.amplitude(n_features=5).apply(QuantumFloat(2), [1.0, 2.0, 3.0, 4.0, 5.0])
 
 
 def test_amplitude_encoding_without_padding_requires_exact_length():
     """pad=False opts out of zero-padding, so the length must match exactly."""
     with pytest.raises(ValueError, match="pad=True"):
-        amplitude_encoding(QuantumFloat(2), [1.0, 2.0, 3.0], pad=False)
+        Encoding.amplitude(n_features=3, pad=False).apply(QuantumFloat(2), [1.0, 2.0, 3.0])
 
 
 @pytest.mark.parametrize(
@@ -180,7 +177,7 @@ def test_dense_angle_encoding_amplitudes(features, num_qubits):
     sin(x_2i/2)|1>. An odd feature count leaves the last qubit without a phase.
     """
     qf = QuantumFloat(num_qubits)
-    dense_angle_encoding(qf, features)
+    Encoding.dense_angle(n_features=len(features)).apply(qf, features)
 
     single_qubit_states = []
     for i in range(num_qubits):
@@ -200,32 +197,43 @@ def test_dense_angle_encoding_amplitudes(features, num_qubits):
 def test_dense_angle_encoding_rejects_oversized_feature_vector():
     """Dense angle encoding holds at most two features per qubit."""
     with pytest.raises(ValueError, match="two features per qubit"):
-        dense_angle_encoding(QuantumFloat(2), [0.1, 0.2, 0.3, 0.4, 0.5])
+        Encoding.dense_angle(n_features=5).apply(QuantumFloat(2), [0.1, 0.2, 0.3, 0.4, 0.5])
 
 
 @pytest.mark.parametrize("bits, outcome", [([1, 0, 1], 5), ([0, 0, 0], 0), ([1, 1, 1], 7)])
 def test_basis_encoding_prepares_basis_state(bits, outcome):
     """The bit vector is encoded into the corresponding computational basis state."""
     qf = QuantumFloat(len(bits))
-    basis_encoding(qf, bits)
+    Encoding.basis(n_features=len(bits)).apply(qf, bits)
 
     assert qf.get_measurement() == {outcome: 1.0}
 
 
-def test_basis_encoding_rejects_non_binary_values():
-    """Basis encoding is only defined for bit vectors."""
-    with pytest.raises(ValueError, match="values 0 and 1"):
-        basis_encoding(QuantumFloat(3), [1, 2, 0])
+@pytest.mark.parametrize(
+    "features, threshold, outcome",
+    [([1, 2, 0], 0.0, 3), ([0.8, -0.2, 0.9], 0.0, 5), ([0.2, 0.7, 0.9], 0.5, 6)],
+)
+def test_basis_encoding_binarizes_its_input(features, threshold, outcome):
+    """
+    Basis encoding coerces its input to bits rather than rejecting it, so a
+    value above the threshold sets its qubit instead of being read as a zero.
+    """
+    qf = QuantumFloat(len(features))
+    Encoding.basis(n_features=len(features), threshold=threshold).apply(qf, features)
+
+    assert qf.get_measurement() == {outcome: 1.0}
 
 
 @pytest.mark.parametrize("features, outcome", [([0.0, np.pi], 2), ([np.pi, 0.0], 1)])
 def test_angle_encoding_traces(features, outcome):
     """Angle encoding is compatible with the Jasp tracing path."""
 
+    encoding = Encoding.angle(n_features=2, prepare_basis=False)
+
     @jaspify
     def main(x):
         qf = QuantumFloat(2)
-        angle_encoding(qf, x, prepare_basis=False)
+        encoding.apply(qf, x)
         return measure(qf)
 
     assert main(jnp.array(features)) == outcome
@@ -242,10 +250,12 @@ def test_amplitude_encoding_traces(features, num_qubits):
     is deterministic and the measurement is a value rather than a sample.
     """
 
+    encoding = Encoding.amplitude(n_features=len(features))
+
     @jaspify
     def main(x):
         qf = QuantumFloat(num_qubits)
-        amplitude_encoding(qf, x)
+        encoding.apply(qf, x)
         return measure(qf)
 
     assert main(jnp.array(features)) == 0

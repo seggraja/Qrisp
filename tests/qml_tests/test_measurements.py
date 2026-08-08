@@ -21,7 +21,7 @@ import pytest
 
 from qrisp import QuantumFloat
 from qrisp.operators import X, Z
-from qrisp.qml import angle_encoding, expectation
+from qrisp.qml import Encoding, expectation
 
 # Coarse enough to keep the suite fast, tight enough that a wrong sign or a
 # swapped entry cannot pass.
@@ -31,7 +31,7 @@ TOLERANCE = 0.1
 
 def state_prep(x):
     qf = QuantumFloat(2)
-    angle_encoding(qf, x)
+    Encoding.angle(n_features=2).apply(qf, x)
     return qf
 
 

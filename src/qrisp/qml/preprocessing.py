@@ -57,7 +57,7 @@ def minmax_scale(X_train, X_test=None, feature_range=(0.0, np.pi)):
 
     **Why the interval matters**
 
-    :ref:`angle_encoding` and :ref:`dense_angle_encoding` read features as
+    :meth:`Encoding.angle` and :meth:`Encoding.dense_angle` read features as
     rotation angles. Rotations are $2\pi$-periodic, so features spanning more
     than $2\pi$ wrap: the values $x$ and $x + 2\pi$ prepare the same state and
     the model cannot separate them. The default range $[0, \pi]$ stays well
@@ -133,10 +133,10 @@ def minmax_scale(X_train, X_test=None, feature_range=(0.0, np.pi)):
     ::
 
         from qrisp import QuantumFloat
-        from qrisp.qml import angle_encoding
+        from qrisp.qml import Encoding
 
         qf = QuantumFloat(2)
-        angle_encoding(qf, X_train_scaled[0])
+        Encoding.angle(n_features=2).apply(qf, X_train_scaled[0])
 
     """
     low, high = feature_range
@@ -204,7 +204,7 @@ def normalize(X):
 
         x' = \frac{x}{\lVert x \rVert}
 
-    :ref:`amplitude_encoding` writes the features into the amplitudes of a
+    :meth:`Encoding.amplitude` writes the features into the amplitudes of a
     register, and a quantum state has unit norm. It therefore normalizes
     internally, which means the length of a feature vector never reaches the
     circuit: only its direction is encoded. Two samples differing by a scalar
@@ -282,7 +282,7 @@ def binarize(X, threshold=0.0):
 
         x' = \begin{cases} 1 & x > t \\ 0 & x \leq t \end{cases}
 
-    :ref:`basis_encoding` maps a bit vector onto a computational basis state and
+    :meth:`Encoding.basis` maps a bit vector onto a computational basis state and
     accepts only the values 0 and 1, so continuous features have to be reduced
     to bits before they can be encoded that way.
 
@@ -324,10 +324,10 @@ def binarize(X, threshold=0.0):
     ::
 
         from qrisp import QuantumFloat
-        from qrisp.qml import basis_encoding
+        from qrisp.qml import Encoding
 
         qf = QuantumFloat(2)
-        basis_encoding(qf, bits[0])
+        Encoding.basis(n_features=2).apply(qf, bits[0])
 
     A threshold splits continuous features at a chosen value instead.
 

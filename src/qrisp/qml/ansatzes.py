@@ -21,13 +21,10 @@ import numpy as np
 
 from qrisp.core.gate_application_functions import cx, cz, rx, ry, rz
 from qrisp.jasp import check_for_tracing_mode, jrange
-from qrisp.qml.encodings import angle_encoding
 
 __all__ = [
-    "data_reuploading",
-    "hardware_efficient",
+    "Ansatz",
     "hardware_efficient_size",
-    "real_amplitudes",
     "real_amplitudes_size",
 ]
 
@@ -38,7 +35,7 @@ _ENTANGLING_GATES = {"cx": cx, "cz": cz}
 _ENTANGLEMENTS = ("linear", "ring")
 
 
-def hardware_efficient(qv, w, layers=1, rotations=("y",), entangler="cx"):
+def _hardware_efficient(qv, w, layers=1, rotations=("y",), entangler="cx"):
     r"""
     Applies a hardware efficient ansatz to a QuantumVariable.
 
@@ -85,33 +82,6 @@ def hardware_efficient(qv, w, layers=1, rotations=("y",), entangler="cx"):
         If ``rotations`` holds an axis other than ``'x'``, ``'y'`` or ``'z'``.
     ValueError
         If ``entangler`` is not ``'cx'`` or ``'cz'``.
-
-    Examples
-    --------
-
-    We apply two layers of the ansatz to a :ref:`QuantumFloat`.
-
-    ::
-
-        import numpy as np
-        from qrisp import QuantumFloat
-        from qrisp.qml import hardware_efficient
-
-        qf = QuantumFloat(3)
-        w = np.random.uniform(0, 2 * np.pi, hardware_efficient_size(3, layers=2))
-        hardware_efficient(qf, w, layers=2)
-
-    Combined with an encoding, this forms the quantum part of a model.
-
-    ::
-
-        from qrisp.qml import angle_encoding
-
-        def circuit(x, w):
-            qf = QuantumFloat(3)
-            angle_encoding(qf, x)
-            hardware_efficient(qf, w, layers=2)
-            return qf
 
     """
     for axis in rotations:
@@ -167,7 +137,7 @@ def hardware_efficient(qv, w, layers=1, rotations=("y",), entangler="cx"):
     return qv
 
 
-def real_amplitudes(qv, w, layers=1, entanglement="ring"):
+def _real_amplitudes(qv, w, layers=1, entanglement="ring"):
     r"""
     Applies an ansatz of $R_Y$ rotations and CX entanglers to a QuantumVariable.
 
@@ -210,26 +180,6 @@ def real_amplitudes(qv, w, layers=1, entanglement="ring"):
     ValueError
         If ``entanglement`` is not ``'ring'`` or ``'linear'``.
 
-    Examples
-    --------
-
-    We apply two layers of the ansatz to a :ref:`QuantumFloat`.
-
-    ::
-
-        import numpy as np
-        from qrisp import QuantumFloat
-        from qrisp.qml import real_amplitudes, real_amplitudes_size
-
-        qf = QuantumFloat(3)
-        w = np.random.uniform(0, 2 * np.pi, real_amplitudes_size(3, layers=2))
-        real_amplitudes(qf, w, layers=2)
-
-    Every amplitude of the resulting state is real.
-
-    >>> np.allclose(np.array(qf.qs.statevector("array")).imag, 0)
-    True
-
     """
     if entanglement not in _ENTANGLEMENTS:
         raise ValueError(
@@ -269,7 +219,7 @@ def real_amplitudes(qv, w, layers=1, entanglement="ring"):
 
 def real_amplitudes_size(num_qubits, layers=1):
     """
-    Returns the number of parameters of a :ref:`real_amplitudes` ansatz.
+    Returns the number of parameters of a :meth:`Ansatz.real_amplitudes` ansatz.
 
     Parameters
     ----------
@@ -290,7 +240,7 @@ def real_amplitudes_size(num_qubits, layers=1):
     ::
 
         import numpy as np
-        from qrisp.qml import real_amplitudes, real_amplitudes_size
+        from qrisp.qml import real_amplitudes_size
 
         w = np.random.uniform(0, 2 * np.pi, real_amplitudes_size(3, layers=2))
 
@@ -298,7 +248,7 @@ def real_amplitudes_size(num_qubits, layers=1):
     return (layers + 1) * num_qubits
 
 
-def data_reuploading(qv, x, w, ansatz_size, layers=2, encoding=None, ansatz=None):
+def _data_reuploading(qv, x, w, ansatz_size, encoding, ansatz, layers=2):
     r"""
     Applies alternating encoding and ansatz layers to a QuantumVariable.
 
@@ -334,62 +284,17 @@ def data_reuploading(qv, x, w, ansatz_size, layers=2, encoding=None, ansatz=None
     layers : int, optional
         The number of encoding and ansatz layer repetitions. The default is
         ``2``, the smallest number that re-uploads the features at all.
-    encoding : callable, optional
-        Applied as ``encoding(qv, x)`` at the start of each layer. The default
-        is :ref:`angle_encoding`.
-    ansatz : callable, optional
-        Applied as ``ansatz(qv, w_layer)`` after each encoding. The default is
-        :ref:`real_amplitudes` with a single layer.
+    encoding : callable
+        Applied as ``encoding(qv, x)`` at the start of each layer.
+    ansatz : callable
+        Applied as ``ansatz(qv, w_layer)`` after each encoding.
 
     Raises
     ------
     ValueError
         If the number of parameters does not match the layers.
 
-    Examples
-    --------
-
-    We re-upload a two-dimensional feature vector over three layers.
-
-    ::
-
-        import numpy as np
-        from qrisp import QuantumFloat
-        from qrisp.qml import data_reuploading, real_amplitudes_size
-
-        qf = QuantumFloat(2)
-        per_layer = real_amplitudes_size(2)
-        w = np.random.uniform(0, 2 * np.pi, 3 * per_layer)
-        data_reuploading(qf, [0.4, 1.2], w, per_layer, layers=3)
-
-    A different encoding and ansatz are supplied together with its parameter
-    count.
-
-    ::
-
-        from functools import partial
-        from qrisp.qml import angle_encoding, hardware_efficient
-        from qrisp.qml import hardware_efficient_size
-
-        qf = QuantumFloat(2)
-        per_layer = hardware_efficient_size(2)
-        w = np.random.uniform(0, 2 * np.pi, 2 * per_layer)
-        data_reuploading(
-            qf,
-            [0.4, 1.2],
-            w,
-            per_layer,
-            encoding=partial(angle_encoding, axis="x"),
-            ansatz=hardware_efficient,
-        )
-
     """
-    if encoding is None:
-        encoding = angle_encoding
-
-    if ansatz is None:
-        ansatz = real_amplitudes
-
     if np.size(w) != layers * ansatz_size:
         raise ValueError(
             f"Tried to apply data reuploading with {np.size(w)} parameters over "
@@ -400,8 +305,8 @@ def data_reuploading(qv, x, w, ansatz_size, layers=2, encoding=None, ansatz=None
     w = _flatten_parameters(w)
 
     for layer in range(layers):
-        encoding(qv, x)
-        ansatz(qv, w[layer * ansatz_size : (layer + 1) * ansatz_size])
+        encoding.apply(qv, x)
+        ansatz.apply(qv, w[layer * ansatz_size : (layer + 1) * ansatz_size])
 
     return qv
 
@@ -443,7 +348,7 @@ def _flatten_parameters(w):
 
 def hardware_efficient_size(num_qubits, layers=1, rotations=("y",)):
     """
-    Returns the number of parameters of a :ref:`hardware_efficient` ansatz.
+    Returns the number of parameters of a :meth:`Ansatz.hardware_efficient` ansatz.
 
     Parameters
     ----------
@@ -467,9 +372,360 @@ def hardware_efficient_size(num_qubits, layers=1, rotations=("y",)):
     ::
 
         import numpy as np
-        from qrisp.qml import hardware_efficient, hardware_efficient_size
+        from qrisp.qml import hardware_efficient_size
 
         w = np.random.uniform(0, 2 * np.pi, hardware_efficient_size(3, layers=2))
 
     """
     return (layers + 1) * len(rotations) * num_qubits
+
+
+class Ansatz:
+    r"""
+    A configured parameterized circuit.
+
+    An ansatz is built once, for a given register size, and applied once per
+    evaluation. The classmethods :meth:`hardware_efficient`,
+    :meth:`real_amplitudes` and :meth:`data_reuploading` each return one:
+
+    ::
+
+        from qrisp import QuantumFloat
+        from qrisp.jasp import jaspify
+        from qrisp.qml import Ansatz
+
+        ansatz = Ansatz.real_amplitudes(num_qubits=3, layers=2)
+
+        @jaspify
+        def circuit(w):
+            qf = QuantumFloat(3)
+            ansatz.apply(qf, w)
+            return qf
+
+    **Why the qubit count is configured up front**
+
+    The number of parameters an ansatz expects is a function of the register
+    size. Under :ref:`Jasp <jasp>` tracing that size is a tracer rather than a
+    number, so the expected count cannot be computed there and a wrong number of
+    parameters is accepted silently: the surplus is ignored, or a short vector is
+    read past its end by reusing its last value.
+
+    Recording ``num_qubits`` while it is still an ordinary integer closes that
+    gap. The expected count becomes a plain number, the parameter vector's size
+    is available as a static shape, and the comparison therefore happens at trace
+    time, before any gate is emitted.
+
+    **Register width is the caller's responsibility**
+
+    As for :ref:`Encoding <Encoding>`, ``num_qubits`` is not checked against the
+    register the ansatz is applied to, which remains a tracer. Applying an ansatz
+    configured for three qubits to a register of four is not reported. Keeping
+    the two in step is left to the caller.
+
+    """
+
+    def __init__(self, num_qubits, num_parameters):
+        if not isinstance(num_qubits, (int, np.integer)) or isinstance(num_qubits, bool):
+            raise ValueError(f"Tried to configure an ansatz for {num_qubits!r} qubits, which is not an integer.")
+
+        if num_qubits < 1:
+            raise ValueError(f"Tried to configure an ansatz for {num_qubits} qubits.")
+
+        self.num_qubits = int(num_qubits)
+        self.num_parameters = int(num_parameters)
+
+    @classmethod
+    def hardware_efficient(cls, num_qubits, layers=1, rotations=("y",), entangler="cx"):
+        r"""
+        Returns an ansatz of rotation layers separated by entangling layers.
+
+        Each rotation layer applies one parameterized rotation per qubit and
+        rotation axis, and each entangling layer a two qubit gate to
+        neighbouring qubits. There is one more rotation layer than entangling
+        layers, so the circuit both begins and ends with rotations.
+
+        Parameters
+        ----------
+        num_qubits : int
+            The size of the QuantumVariable the ansatz is applied to.
+        layers : int, optional
+            The number of rotation and entangling layer repetitions. The default
+            is ``1``.
+        rotations : tuple[str], optional
+            The rotation axes applied to each qubit in a rotation layer. The
+            default is ``("y",)``.
+        entangler : {'cx', 'cz'}, optional
+            The two qubit gate of the entangling layers. The default is
+            ``'cx'``.
+
+        Returns
+        -------
+        Ansatz
+            The configured ansatz.
+
+        Examples
+        --------
+
+        ::
+
+            import numpy as np
+            from qrisp import QuantumFloat
+            from qrisp.qml import Ansatz
+
+            qf = QuantumFloat(3)
+            ansatz = Ansatz.hardware_efficient(num_qubits=3, layers=2)
+            w = np.random.uniform(0, 2 * np.pi, ansatz.num_parameters)
+            ansatz.apply(qf, w)
+
+        """
+        for axis in rotations:
+            if axis not in _ROTATION_GATES:
+                raise ValueError(
+                    f"Unknown rotation axis '{axis}' for the hardware efficient ansatz. "
+                    f"Supported axes are {sorted(_ROTATION_GATES)}."
+                )
+
+        if entangler not in _ENTANGLING_GATES:
+            raise ValueError(
+                f"Unknown entangler '{entangler}' for the hardware efficient ansatz. "
+                f"Supported entanglers are {sorted(_ENTANGLING_GATES)}."
+            )
+
+        _check_layers(layers, "hardware efficient")
+
+        ansatz = _HardwareEfficient(num_qubits, hardware_efficient_size(num_qubits, layers, rotations))
+        ansatz.layers = layers
+        ansatz.rotations = rotations
+        ansatz.entangler = entangler
+
+        return ansatz
+
+    @classmethod
+    def real_amplitudes(cls, num_qubits, layers=1, entanglement="ring"):
+        r"""
+        Returns an ansatz preparing states with real amplitudes.
+
+        Each rotation layer applies one $R_Y$ rotation per qubit, separated by
+        entangling layers of CX gates. As both gates have real matrix entries,
+        every amplitude of the resulting state is real.
+
+        Parameters
+        ----------
+        num_qubits : int
+            The size of the QuantumVariable the ansatz is applied to.
+        layers : int, optional
+            The number of rotation and entangling layer repetitions. The default
+            is ``1``.
+        entanglement : {'ring', 'linear'}, optional
+            The shape of the entangling layers. The default is ``'ring'``, which
+            closes the chain by entangling the last qubit with the first.
+
+        Returns
+        -------
+        Ansatz
+            The configured ansatz.
+
+        Examples
+        --------
+
+        ::
+
+            import numpy as np
+            from qrisp import QuantumFloat
+            from qrisp.qml import Ansatz
+
+            qf = QuantumFloat(3)
+            ansatz = Ansatz.real_amplitudes(num_qubits=3, layers=2)
+            w = np.random.uniform(0, 2 * np.pi, ansatz.num_parameters)
+            ansatz.apply(qf, w)
+
+        Every amplitude of the resulting state is real.
+
+        >>> np.allclose(np.array(qf.qs.statevector("array")).imag, 0)
+        True
+
+        """
+        if entanglement not in _ENTANGLEMENTS:
+            raise ValueError(
+                f"Unknown entanglement '{entanglement}' for the real amplitudes "
+                f"ansatz. Supported entanglements are {sorted(_ENTANGLEMENTS)}."
+            )
+
+        _check_layers(layers, "real amplitudes")
+
+        ansatz = _RealAmplitudes(num_qubits, real_amplitudes_size(num_qubits, layers))
+        ansatz.layers = layers
+        ansatz.entanglement = entanglement
+
+        return ansatz
+
+    @classmethod
+    def data_reuploading(cls, num_qubits, encoding, ansatz, layers=2):
+        r"""
+        Returns an ansatz alternating encoding and ansatz layers.
+
+        The feature vector is encoded once per layer rather than only at the
+        start of the circuit:
+
+        .. math::
+
+            \prod_{l=1}^{L} W(w_l) S(x)
+
+        where $S$ is the encoding and $W$ the parameterized ansatz.
+
+        Re-encoding the same features between parameterized layers raises the
+        frequency spectrum the circuit can represent. A single encoding layer
+        followed by an ansatz produces a function of the features whose Fourier
+        spectrum is limited by the encoding alone, so no amount of added
+        parameters widens it. With $L$ encoding layers the accessible spectrum
+        grows with $L$, which is what allows a circuit on few qubits to fit a
+        rich function.
+
+        Unlike the other ansatzes this one also takes the features, so it is
+        applied as ``apply(qv, w, x)``.
+
+        Parameters
+        ----------
+        num_qubits : int
+            The size of the QuantumVariable the ansatz is applied to.
+        encoding : Encoding
+            Applied at the start of each layer.
+        ansatz : Ansatz
+            Applied after each encoding.
+        layers : int, optional
+            The number of encoding and ansatz layer repetitions. The default is
+            ``2``, the smallest number that re-uploads the features at all.
+
+        Returns
+        -------
+        Ansatz
+            The configured ansatz.
+
+        Examples
+        --------
+
+        ::
+
+            import numpy as np
+            from qrisp import QuantumFloat
+            from qrisp.qml import Ansatz, Encoding
+
+            qf = QuantumFloat(2)
+            reuploading = Ansatz.data_reuploading(
+                num_qubits=2,
+                encoding=Encoding.angle(n_features=2),
+                ansatz=Ansatz.real_amplitudes(num_qubits=2),
+                layers=3,
+            )
+            w = np.random.uniform(0, 2 * np.pi, reuploading.num_parameters)
+            reuploading.apply(qf, w, [0.4, 1.2])
+
+        """
+        _check_layers(layers, "data reuploading")
+
+        reuploading = _DataReuploading(num_qubits, layers * ansatz.num_parameters)
+        reuploading.layers = layers
+        reuploading.encoding = encoding
+        reuploading.ansatz = ansatz
+
+        return reuploading
+
+    def apply(self, qv, w):
+        """
+        Applies the ansatz to ``qv``.
+
+        Parameters
+        ----------
+        qv : QuantumVariable
+            The QuantumVariable to apply the ansatz to. Its size is not
+            validated; see the note on register width in the class docstring.
+        w : list[float] or numpy.ndarray
+            The parameters, either flat or shaped.
+
+        Returns
+        -------
+        QuantumVariable
+            The QuantumVariable the ansatz was applied to.
+
+        Raises
+        ------
+        ValueError
+            If ``w`` does not hold exactly ``num_parameters`` parameters.
+
+        """
+        self._check_parameters(w)
+
+        return self._apply(qv, w)
+
+    def _check_parameters(self, w):
+        """
+        Rejects a parameter vector of the wrong size.
+
+        np.size reads a static shape, and num_parameters was computed outside
+        the traced region, so unlike a count derived from qv.size this
+        comparison also runs while tracing.
+        """
+        if np.size(w) != self.num_parameters:
+            raise ValueError(
+                f"Tried to apply an ansatz configured for {self.num_qubits} qubits "
+                f"with {np.size(w)} parameters. Expected {self.num_parameters}."
+            )
+
+
+def _check_layers(layers, name):
+    """
+    Rejects a negative layer count.
+
+    The parameter count check does not catch this, as a negative count expects
+    no parameters and would leave the QuantumVariable untouched.
+    """
+    if layers < 0:
+        raise ValueError(f"Tried to configure a {name} ansatz with a negative layer count ({layers}).")
+
+
+class _HardwareEfficient(Ansatz):
+    def _apply(self, qv, w):
+        return _hardware_efficient(qv, w, layers=self.layers, rotations=self.rotations, entangler=self.entangler)
+
+
+class _RealAmplitudes(Ansatz):
+    def _apply(self, qv, w):
+        return _real_amplitudes(qv, w, layers=self.layers, entanglement=self.entanglement)
+
+
+class _DataReuploading(Ansatz):
+    def apply(self, qv, w, x):
+        """
+        Applies alternating encoding and ansatz layers to ``qv``.
+
+        Parameters
+        ----------
+        qv : QuantumVariable
+            The QuantumVariable to apply the circuit to.
+        w : list[float] or numpy.ndarray
+            The parameters of all ansatz layers, concatenated.
+        x : list[float] or numpy.ndarray
+            The feature vector, encoded once per layer.
+
+        Returns
+        -------
+        QuantumVariable
+            The QuantumVariable the circuit was applied to.
+
+        Raises
+        ------
+        ValueError
+            If ``w`` does not hold exactly ``num_parameters`` parameters.
+
+        """
+        self._check_parameters(w)
+
+        return _data_reuploading(
+            qv,
+            x,
+            w,
+            self.ansatz.num_parameters,
+            self.encoding,
+            self.ansatz,
+            layers=self.layers,
+        )
