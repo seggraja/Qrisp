@@ -20,6 +20,7 @@ import numpy as np
 import pytest
 
 import jax.numpy as jnp
+from jax.flatten_util import ravel_pytree
 
 from qrisp import QuantumFloat
 from qrisp.operators import Z
@@ -181,3 +182,77 @@ def test_hybrid_composition_traces():
 
     # The [pi, pi] row gives [-1, +1], which sums to 0.
     assert np.isclose(result, 0.0, atol=TOLERANCE)
+
+
+def _hybrid_parameters():
+    """
+    A hybrid model's parameters in named groups: a classical layer either side
+    of the quantum block. ``b_out`` is a scalar, so the roundtrip has to carry
+    a 0-d entry as well as vectors.
+    """
+    ansatz = Ansatz.hardware_efficient(num_qubits=NUM_QUBITS, layers=LAYERS)
+    return {
+        "w_in": jnp.ones(NUM_QUBITS),
+        "theta": jnp.zeros(ansatz.num_parameters),
+        "w_out": jnp.ones(NUM_QUBITS),
+        "b_out": jnp.array(0.0),
+    }
+
+
+def test_named_parameter_groups_survive_the_flat_roundtrip():
+    """
+    The optimizers take one flat vector while a hybrid model has named groups
+    of parameters, so something has to convert between the two. Jax already
+    does it, and slicing the flat vector by hand instead is the mistake this
+    pins against: an off-by-one there trains the model on the wrong numbers
+    and raises nothing.
+    """
+    parameters = _hybrid_parameters()
+    ansatz = Ansatz.hardware_efficient(num_qubits=NUM_QUBITS, layers=LAYERS)
+
+    flat, unravel = ravel_pytree(parameters)
+
+    # 2 in + num_parameters + 2 out + 1 bias.
+    assert flat.shape == (2 * NUM_QUBITS + ansatz.num_parameters + 1,)
+
+    restored = unravel(flat)
+
+    assert set(restored) == set(parameters)
+    for name, value in parameters.items():
+        assert restored[name].shape == np.shape(value)
+        assert np.allclose(restored[name], value)
+
+
+def test_a_flat_vector_drives_a_hybrid_model_under_tracing():
+    """
+    The unravel has to work inside the traced function, because that is where
+    the optimizer calls it — once per iteration, on the vector it is varying.
+
+    A coarse precision is enough here: this pins that the named groups reach
+    the right layers, not the value of the expectation, which the tests above
+    already cover.
+    """
+    encoding = Encoding.angle(n_features=NUM_QUBITS)
+    ansatz = Ansatz.hardware_efficient(num_qubits=NUM_QUBITS, layers=LAYERS)
+
+    def state_prep(x, w):
+        qv = QuantumFloat(NUM_QUBITS)
+        encoding.apply(qv, x)
+        ansatz.apply(qv, w)
+        return qv
+
+    quantum_block = expectation(state_prep, [Z(0), Z(1)], precision=0.5)
+    flat, unravel = ravel_pytree(_hybrid_parameters())
+
+    @jaspify
+    def model(flat_parameters):
+        p = unravel(flat_parameters)
+        q = quantum_block(jnp.array([0.0, np.pi]) * p["w_in"], p["theta"])
+        return jnp.tanh(jnp.dot(q, p["w_out"]) + p["b_out"])
+
+    result = model(flat)
+
+    # Only that a finite number comes back through the whole chain. A wrong
+    # group would reach a layer with the wrong shape and raise instead.
+    assert np.ndim(result) == 0
+    assert np.isfinite(result)

@@ -105,6 +105,50 @@ def expectation(state_prep, observables, precision=0.01):
     >>> ev([np.pi, 0])
     array([-1.,  1.])
 
+    **Hybrid models**
+
+    The returned function takes and returns Jax arrays, so it composes with
+    classical layers written in ``jnp`` on either side of it:
+
+    ::
+
+        quantum_block = expectation(state_prep, [Z(0), Z(1)])
+
+        def model(x, p):
+            h = jnp.tanh(x * p["w_in"])                     # classical
+            q = quantum_block(h, p["theta"])                # quantum
+            return jnp.tanh(jnp.dot(q, p["w_out"]))         # classical
+
+    The optimizers take a single flat vector, while a model like this has
+    named groups of parameters. ``jax.flatten_util.ravel_pytree`` converts
+    between the two, and the unravel function it returns can be called inside
+    the traced region, so the whole model trains through one flat vector:
+
+    ::
+
+        from jax.flatten_util import ravel_pytree
+        from qrisp.jasp import jaspify, minimize
+
+        parameters = {"w_in": jnp.ones(2), "theta": jnp.zeros(4),
+                      "w_out": jnp.ones(2)}
+        flat, unravel = ravel_pytree(parameters)
+
+        @jaspify
+        def train(flat_parameters):
+            def loss(v):
+                p = unravel(v)
+                return (model(x, p) - y) ** 2
+
+            return minimize(loss, flat_parameters, method="COBYLA").x
+
+    Slicing the flat vector by hand instead is a common source of silent
+    error: an off-by-one hands the wrong numbers to the wrong layer, which
+    trains without raising anything.
+
+    Note the optimizers available through :func:`qrisp.jasp.minimize` are
+    gradient-free, so a hybrid model is trained without differentiating
+    through the quantum block.
+
     """
     # A single operator is identified by what it provides rather than by what
     # it is, so that any iterable of observables is read as a sequence.
