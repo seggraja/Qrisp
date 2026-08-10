@@ -209,6 +209,26 @@ def test_real_amplitudes_rejects_the_wrong_parameter_count():
         Ansatz.real_amplitudes(num_qubits=3, layers=2).apply(QuantumFloat(3), np.zeros(7))
 
 
+@pytest.mark.parametrize("constructor", [Ansatz.real_amplitudes, Ansatz.hardware_efficient])
+def test_ansatzes_reject_the_wrong_parameter_count_under_tracing(constructor):
+    """
+    The parameter count check also runs while a program is being traced, which
+    is where a mismatch would otherwise pass silently: too few parameters are
+    read past the end of the array and Jax clamps the read rather than raising.
+    """
+
+    ansatz = constructor(num_qubits=3, layers=2)
+
+    @jaspify
+    def main(w):
+        qf = QuantumFloat(3)
+        ansatz.apply(qf, w)
+        return measure(qf)
+
+    with pytest.raises(ValueError, match=f"Expected {ansatz.num_parameters}"):
+        main(jnp.zeros(ansatz.num_parameters - 1))
+
+
 @pytest.mark.parametrize("entanglement, expected", [("linear", 7), ("ring", 6)])
 def test_real_amplitudes_propagates_a_flip_along_the_entanglers(entanglement, expected):
     """
@@ -288,6 +308,29 @@ def test_data_reuploading_rejects_parameter_count_mismatch():
 
     with pytest.raises(ValueError, match="Expected 12"):
         reuploading.apply(QuantumFloat(2), np.zeros(5), [0.1, 0.2])
+
+
+def test_data_reuploading_rejects_parameter_count_mismatch_under_tracing():
+    """
+    The split over layers is checked while tracing as well, so a mismatch cannot
+    reach the gates through the traced path.
+    """
+
+    reuploading = Ansatz.data_reuploading(
+        num_qubits=2,
+        encoding=Encoding.angle(n_features=2),
+        ansatz=Ansatz.real_amplitudes(num_qubits=2),
+        layers=3,
+    )
+
+    @jaspify
+    def main(w, x):
+        qf = QuantumFloat(2)
+        reuploading.apply(qf, w, x)
+        return measure(qf)
+
+    with pytest.raises(ValueError, match="Expected 12"):
+        main(jnp.zeros(5), jnp.array([0.1, 0.2]))
 
 
 @pytest.mark.parametrize(

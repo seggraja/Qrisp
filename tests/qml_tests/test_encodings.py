@@ -88,6 +88,27 @@ def test_encoding_rejects_a_sample_of_the_wrong_width(n_features, features):
         Encoding.angle(n_features=n_features).apply(QuantumFloat(n_features), features)
 
 
+@pytest.mark.parametrize("constructor", [Encoding.angle, Encoding.amplitude, Encoding.dense_angle, Encoding.basis])
+@pytest.mark.parametrize("n_features, features", [(3, [0.1, 0.2]), (2, [0.1, 0.2, 0.3])])
+def test_encoding_rejects_a_sample_of_the_wrong_width_under_tracing(constructor, n_features, features):
+    """
+    The width check also runs while a program is being traced, which is where a
+    mismatch would otherwise pass silently: a short feature vector is read past
+    its end and Jax clamps the read to the last value rather than raising.
+    """
+
+    encoding = constructor(n_features=n_features)
+
+    @jaspify
+    def main(x):
+        qf = QuantumFloat(n_features)
+        encoding.apply(qf, x)
+        return measure(qf)
+
+    with pytest.raises(ValueError, match="configured for"):
+        main(jnp.array(features, dtype=float))
+
+
 def test_angle_encoding_z_axis_phases():
     """
     Z angle encoding prepares the product state
