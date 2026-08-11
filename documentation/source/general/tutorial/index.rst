@@ -285,6 +285,24 @@ Explore the Jasp pipeline to build highly performant algorithms, and ensure your
         +++
         **Quantum Machine Learning from primitives**
 
+    .. grid-item-card::
+        :shadow: sm
+        :text-align: center
+
+        .. raw:: html
+
+            <a href="./QMLTransferLearning.html">
+            <div class="example-img-plot-overlay">
+            <p class="sd-card-text">Keep a pretrained image network frozen and train a seven parameter quantum model on the features it produces.</p>
+            </div>
+            </a>
+
+        .. image:: ../../_static/hello_world.png
+            :alt: Quantum Machine Learning Transfer Learning Tutorial
+
+        +++
+        **Transfer learning from a pretrained network**
+
 
 Scientific Computing and Quantum Numerical Linear Algebra
 ---------------------------------------------------------
@@ -394,6 +412,7 @@ So, take these concepts, experiment, and start building the future of quantum co
    FT_compilation.ipynb
    BigInteger.ipynb
    QMLtutorial.ipynb
+   QMLTransferLearning.ipynb
    H2.ipynb
    BE_tutorial/index
    GQSP_filtering.ipynb

@@ -41,6 +41,8 @@ In this section, we provide a glimpse into the diverse range of applications tha
      - Solving MaxCut with :ref:`QITE`
    * - :ref:`HybridQMLModel`
      - Composing classical layers around a quantum block, and training them together.
+   * - :ref:`QMLTransferLearning`
+     - Training a quantum model on the features of a frozen pretrained network.
 
 .. toctree::
    :hidden:
@@ -62,3 +64,4 @@ In this section, we provide a glimpse into the diverse range of applications tha
    IsingModel
    MaxCutQITE
    HybridQMLModel
+   QMLTransferLearning
