@@ -363,12 +363,17 @@ def _basis_encoding(qv, x):
     return qv
 
 
-def _derive_range(data, data_range, feature_range):
+def _derive_range(data, data_range, feature_range, periodic=True):
     """
     Returns the affine map onto ``feature_range`` as a (scale, offset) pair.
 
     Runs outside the traced region, where every value is concrete, so the pair
     it returns are plain floats that the encoder carries into the trace.
+
+    ``periodic`` marks the encodings that read a feature as a rotation angle,
+    which are the ones a range longer than a full turn would wrap. Amplitude
+    encoding normalizes its features instead, so the width of the range makes
+    no difference to the state it prepares and is not restricted.
     """
     if data is not None and data_range is not None:
         raise ValueError(
@@ -382,7 +387,7 @@ def _derive_range(data, data_range, feature_range):
     if not high > low:
         raise ValueError(f"Tried to scale into an empty feature range ({low}, {high}).")
 
-    if high - low > 2 * np.pi:
+    if periodic and high - low > 2 * np.pi:
         raise ValueError(
             f"Tried to scale into the feature range ({low}, {high}), which is "
             "longer than 2*pi. Rotation angles are 2*pi-periodic, so its "
@@ -620,7 +625,9 @@ class Encoding:
             of derived from data. Mutually exclusive with ``data``.
         feature_range : tuple[float, float], optional
             The interval to scale into, if a scaling was requested. The default
-            is ``(0, numpy.pi)``.
+            is ``(0, numpy.pi)``. Unlike the rotation based encodings this one
+            accepts a range of any width, since the features are normalized and
+            the width of the interval therefore does not reach the state.
         pad : bool, optional
             Whether to zero-pad the feature vector up to $2^n$ entries. The
             default is ``True``. If ``False``, ``n_features`` must be exactly
@@ -651,7 +658,7 @@ class Encoding:
         array([0.2673, 0.8018, 0.5345, 0.])
 
         """
-        encoding = _AmplitudeEncoding(n_features, _scaling(data, data_range, feature_range))
+        encoding = _AmplitudeEncoding(n_features, _scaling(data, data_range, feature_range, periodic=False))
         encoding.pad = pad
 
         return encoding
@@ -858,14 +865,14 @@ class Encoding:
         return jnp.clip(scale * jnp.asarray(x, dtype=float) + offset, low, high)
 
 
-def _scaling(data, data_range, feature_range):
+def _scaling(data, data_range, feature_range, periodic=True):
     """
     Returns the affine map onto ``feature_range``, or None if none was requested.
     """
     if data is None and data_range is None:
         return None
 
-    scale, offset = _derive_range(data, data_range, feature_range)
+    scale, offset = _derive_range(data, data_range, feature_range, periodic=periodic)
 
     return scale, offset, feature_range
 

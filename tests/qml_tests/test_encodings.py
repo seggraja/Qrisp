@@ -342,6 +342,46 @@ def test_subclass_receives_scaled_features():
     assert main(jnp.array([0.0, 1.0])) == 2
 
 
+@pytest.mark.parametrize("constructor", [Encoding.angle, Encoding.dense_angle])
+def test_rotation_encodings_reject_a_feature_range_longer_than_a_turn(constructor):
+    """
+    These encodings read a feature as a rotation angle, so a range wider than a
+    full turn maps the smallest and largest value onto the same state.
+    """
+    data = np.array([[0.0, 1.0], [1.0, 2.0]])
+
+    with pytest.raises(ValueError, match="longer than 2\\*pi"):
+        constructor(n_features=2, data=data, feature_range=(0.0, 10.0))
+
+
+def test_amplitude_encoding_accepts_a_feature_range_of_any_width():
+    """
+    Amplitude encoding normalizes the features, so the width of the range never
+    reaches the state and the rotation periodicity limit does not apply. The
+    range is rejected only when it is empty, which no scaling can use.
+    """
+    data = np.array([[1.0, 2.0], [3.0, 4.0]])
+
+    wide = Encoding.amplitude(n_features=2, data=data, feature_range=(0.0, 10.0))
+    narrow = Encoding.amplitude(n_features=2, data=data, feature_range=(0.0, np.pi))
+
+    # Not data[0], which is the minimum of every column and therefore scales to
+    # the lower bound of the range, leaving a zero vector to normalize.
+    sample = data[1]
+
+    qf_wide = QuantumFloat(1)
+    qf_narrow = QuantumFloat(1)
+    wide.apply(qf_wide, sample)
+    narrow.apply(qf_narrow, sample)
+
+    # The two ranges differ by more than a factor of three, and normalization
+    # removes the difference entirely.
+    assert np.allclose(statevector_array(qf_wide), statevector_array(qf_narrow))
+
+    with pytest.raises(ValueError, match="empty feature range"):
+        Encoding.amplitude(n_features=2, data=data, feature_range=(1.0, 1.0))
+
+
 def test_encoding_without_its_hook_reports_what_is_missing():
     """
     A subclass that implements nothing would otherwise apply no gates and return
