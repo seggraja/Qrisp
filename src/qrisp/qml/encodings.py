@@ -236,6 +236,26 @@ def _amplitude_encoding(qv, x, pad=True):
                 "pad=True to zero-pad the feature vector."
             )
 
+    if not tracing:
+        # prepare() reports a vector it cannot normalize as a statevector of
+        # zero norm, which names neither the features nor the scaling that
+        # produced them. A scaled encoder reaches it for the sample sitting at
+        # the minimum of every feature, which is an ordinary row of a training
+        # set rather than a degenerate input.
+        #
+        # The condition mirrors the one prepare() applies to the padded vector,
+        # so that every vector it would reject is reported here instead, in
+        # terms of the features the caller passed.
+        if np.isclose(np.linalg.norm(np.asarray(x, dtype=float)), 0.0):
+            raise ValueError(
+                "Tried to amplitude encode a feature vector of vanishing norm, "
+                "which has no direction to encode. A scaling maps the sample at "
+                "the minimum of every feature onto the lower bound of the feature "
+                "range, so a feature_range starting at 0 turns that sample into "
+                "such a vector. Pass a feature_range with a non-zero lower bound, "
+                "such as (1, 2), to keep it encodable."
+            )
+
     if pad:
         x = jnp.asarray(x, dtype=float)
         num_features = jnp.shape(x)[0]

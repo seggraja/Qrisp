@@ -382,6 +382,34 @@ def test_amplitude_encoding_accepts_a_feature_range_of_any_width():
         Encoding.amplitude(n_features=2, data=data, feature_range=(1.0, 1.0))
 
 
+def test_amplitude_encoding_reports_a_sample_a_scaling_zeroed():
+    """
+    A scaling maps the sample sitting at the minimum of every feature onto the
+    lower bound of the feature range, so the default range starting at 0 turns
+    an ordinary row of a training set into a zero vector. Without a check here
+    it reaches the state preparation, which reports a statevector of zero norm
+    and names neither the sample nor the scaling that produced it.
+    """
+    X = np.array([[0.0, 0.0], [1.0, 2.0], [2.0, 5.0]])
+    encoding = Encoding.amplitude(n_features=2, data=X)
+
+    with pytest.raises(ValueError, match="vanishing norm"):
+        encoding.apply(QuantumFloat(1), X[0])
+
+    # The check mirrors the tolerance the state preparation applies, so a vector
+    # that is not exactly zero but still too small for it is reported here too,
+    # rather than falling through to the message that names no features.
+    with pytest.raises(ValueError, match="vanishing norm"):
+        Encoding.amplitude(n_features=2).apply(QuantumFloat(1), [1e-12, 0.0])
+
+    # The remedy the message suggests has to actually encode that sample.
+    shifted = Encoding.amplitude(n_features=2, data=X, feature_range=(1.0, 2.0))
+    assert shifted.apply(QuantumFloat(1), X[0]) is not None
+
+    # Samples away from the minimum were never affected.
+    assert encoding.apply(QuantumFloat(1), X[2]) is not None
+
+
 def test_encoding_without_its_hook_reports_what_is_missing():
     """
     A subclass that implements nothing would otherwise apply no gates and return
