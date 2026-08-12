@@ -228,9 +228,10 @@ def test_a_flat_vector_drives_a_hybrid_model_under_tracing():
     The unravel has to work inside the traced function, because that is where
     the optimizer calls it — once per iteration, on the vector it is varying.
 
-    A coarse precision is enough here: this pins that the named groups reach
-    the right layers, not the value of the expectation, which the tests above
-    already cover.
+    The groups are given distinct values rather than all-ones, so that a
+    swapped group changes the result. With every group set to ones the model
+    returns the same number whichever way two of them are exchanged, and the
+    test would pass against exactly the mistake it is meant to catch.
     """
     encoding = Encoding.angle(n_features=NUM_QUBITS)
     ansatz = Ansatz.hardware_efficient(num_qubits=NUM_QUBITS, layers=LAYERS)
@@ -241,8 +242,21 @@ def test_a_flat_vector_drives_a_hybrid_model_under_tracing():
         ansatz.apply(qv, w)
         return qv
 
+    # A coarse precision is enough: the parameters are zero, so both
+    # expectations are exactly +-1 and the sampling noise stays far away from
+    # the tolerance. Tightening it only makes the suite slower.
     quantum_block = expectation(state_prep, [Z(0), Z(1)], precision=0.5)
-    flat, unravel = ravel_pytree(_hybrid_parameters())
+
+    # w_in leaves the angles untouched, so the encoded row is [0, pi] -> [1, -1].
+    # w_out weights those two entries differently, which is what makes the
+    # result depend on which group reached which layer.
+    parameters = {
+        "w_in": jnp.ones(NUM_QUBITS),
+        "theta": jnp.zeros(hardware_efficient_size(NUM_QUBITS, LAYERS)),
+        "w_out": jnp.array([2.0, 3.0]),
+        "b_out": jnp.array(0.5),
+    }
+    flat, unravel = ravel_pytree(parameters)
 
     @jaspify
     def model(flat_parameters):
@@ -252,7 +266,7 @@ def test_a_flat_vector_drives_a_hybrid_model_under_tracing():
 
     result = model(flat)
 
-    # Only that a finite number comes back through the whole chain. A wrong
-    # group would reach a layer with the wrong shape and raise instead.
+    # [1, -1] . [2, 3] + 0.5 = -0.5, so the model returns tanh(-0.5). Exchanging
+    # any two groups moves this number, which an all-ones fixture would not.
     assert np.ndim(result) == 0
-    assert np.isfinite(result)
+    assert np.isclose(result, np.tanh(-0.5), atol=TOLERANCE)
