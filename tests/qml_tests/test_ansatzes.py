@@ -500,3 +500,26 @@ def test_hardware_efficient_rejects_repeated_rotation_axes(rotations):
 
     with pytest.raises(ValueError, match="Repeated rotation axis"):
         hardware_efficient_size(3, rotations=rotations)
+
+
+def test_data_reuploading_rejects_a_reuploading_inner_ansatz():
+    """
+    The inner ansatz is applied as apply(qv, w_layer), without the features a
+    reuploading ansatz needs. Nesting one inside another would otherwise build
+    a configuration reporting a parameter count it can never be applied with,
+    failing with a TypeError at the first evaluation rather than here.
+    """
+    inner = Ansatz.data_reuploading(
+        num_qubits=2,
+        encoding=Encoding.angle(n_features=2),
+        ansatz=Ansatz.real_amplitudes(num_qubits=2),
+        layers=2,
+    )
+
+    with pytest.raises(ValueError, match="inner ansatz"):
+        Ansatz.data_reuploading(
+            num_qubits=2,
+            encoding=Encoding.angle(n_features=2),
+            ansatz=inner,
+            layers=2,
+        )

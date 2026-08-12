@@ -673,6 +673,18 @@ class Ansatz:
         """
         _check_layers(layers, "data reuploading")
 
+        # A reuploading ansatz takes the features as a third argument, while the
+        # inner ansatz is applied as apply(qv, w_layer). Nesting one inside
+        # another would therefore raise a TypeError once applied, so it is
+        # rejected here rather than at the first evaluation.
+        if isinstance(ansatz, _DataReuploading):
+            raise ValueError(
+                "Tried to use a data reuploading ansatz as the inner ansatz of "
+                "another one. The inner ansatz is applied without the features, "
+                "which a reuploading ansatz requires. Pass an ansatz such as "
+                "Ansatz.real_amplitudes, and raise layers to re-upload more often."
+            )
+
         reuploading = _DataReuploading(num_qubits, layers * ansatz.num_parameters)
         reuploading.layers = layers
         reuploading.encoding = encoding
