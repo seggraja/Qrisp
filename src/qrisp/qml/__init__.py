@@ -20,3 +20,4 @@ from qrisp.qml.encodings import *
 from qrisp.qml.ansatzes import *
 from qrisp.qml.measurements import *
 from qrisp.qml.preprocessing import *
+from qrisp.qml.serialization import *

@@ -37,9 +37,16 @@ _ROTATION_GATES = {"x": rx, "y": ry, "z": rz}
 _AXES_REQUIRING_BASIS_PREPARATION = {"z"}
 
 
+class _Unspecified:
+    # Pickles as a reference to the module-level instance below, so that an
+    # encoding saved and loaded again still recognises it by identity.
+    def __reduce__(self):
+        return "_UNSPECIFIED"
+
+
 # Marks that the caller did not specify ``prepare_basis``, so that only the
 # implicit default emits a warning.
-_UNSPECIFIED = object()
+_UNSPECIFIED = _Unspecified()
 
 
 def _angle_encoding(qv, x, axis="y", prepare_basis=_UNSPECIFIED):
