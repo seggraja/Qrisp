@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 450" width="880" height="450" font-family="Helvetica, Arial, sans-serif" font-size="14">
+  <defs>
+    <marker id="step" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#bc4c00"/>
+    </marker>
+    <style>
+      .math { font-family: "Latin Modern Math", "STIX Two Math", "Cambria Math", "Times New Roman", serif; font-style: italic; }
+      .caption { font-size: 13px; fill: #57606a; }
+      .rule { font-size: 13.5px; fill: #24292f; }
+    </style>
+  </defs>
+  <rect width="880" height="450" rx="10" fill="#ffffff"/>
+  <text x="20" y="30" font-size="15" font-weight="bold" fill="#24292f">COBYLA: a whole run, from the start group to the returned point</text>
+  <rect x="40" y="60" width="360" height="360" fill="#ffffff" stroke="#d0d7de"/>
+  <clipPath id="run"><rect x="40" y="60" width="360" height="360"/></clipPath>
+  <g clip-path="url(#run)">
+    <ellipse cx="263.2" cy="196.8" rx="44.3" ry="25.8" transform="rotate(-28.6 263.2 196.8)" fill="none" stroke="#d8dee4" stroke-width="1.2"/>
+    <ellipse cx="263.2" cy="196.8" rx="88.5" ry="51.5" transform="rotate(-28.6 263.2 196.8)" fill="none" stroke="#d8dee4" stroke-width="1.2"/>
+    <ellipse cx="263.2" cy="196.8" rx="140.0" ry="81.5" transform="rotate(-28.6 263.2 196.8)" fill="none" stroke="#d8dee4" stroke-width="1.2"/>
+    <ellipse cx="263.2" cy="196.8" rx="198.0" ry="115.2" transform="rotate(-28.6 263.2 196.8)" fill="none" stroke="#d8dee4" stroke-width="1.2"/>
+    <ellipse cx="263.2" cy="196.8" rx="258.2" ry="150.2" transform="rotate(-28.6 263.2 196.8)" fill="none" stroke="#d8dee4" stroke-width="1.2"/>
+    <ellipse cx="263.2" cy="196.8" rx="325.3" ry="189.3" transform="rotate(-28.6 263.2 196.8)" fill="none" stroke="#d8dee4" stroke-width="1.2"/>
+    <ellipse cx="263.2" cy="196.8" rx="396.0" ry="230.4" transform="rotate(-28.6 263.2 196.8)" fill="none" stroke="#d8dee4" stroke-width="1.2"/>
+    <ellipse cx="263.2" cy="196.8" rx="468.6" ry="272.6" transform="rotate(-28.6 263.2 196.8)" fill="none" stroke="#d8dee4" stroke-width="1.2"/>
+    <path d="M 258.2 191.8 L 268.2 201.8 M 258.2 201.8 L 268.2 191.8" stroke="#24292f" stroke-width="1.5"/>
+  </g>
+  <text x="220.0" y="438" class="caption" text-anchor="middle">parameter <tspan class="math">w</tspan><tspan font-size="10" dy="3">0</tspan></text>
+  <text x="32" y="240.0" class="caption" text-anchor="middle" transform="rotate(-90 32 240.0)">parameter <tspan class="math">w</tspan><tspan font-size="10" dy="3">1</tspan></text>
+  <polygon points="157.0,295.8 130.0,376.8 76.0,322.8" fill="#0969da" fill-opacity="0.03" stroke="#0969da" stroke-width="1.0"/>
+  <polygon points="157.0,295.8 123.2,343.1 76.0,322.8" fill="#0969da" fill-opacity="0.03" stroke="#0969da" stroke-width="1.0"/>
+  <polygon points="157.0,295.8 123.2,343.1 108.1,321.1" fill="#0969da" fill-opacity="0.03" stroke="#0969da" stroke-width="1.0"/>
+  <polygon points="157.0,295.8 151.1,239.3 108.1,321.1" fill="#0969da" fill-opacity="0.03" stroke="#0969da" stroke-width="1.0"/>
+  <polygon points="157.0,295.8 151.1,239.3 200.0,214.0" fill="#0969da" fill-opacity="0.03" stroke="#0969da" stroke-width="1.0"/>
+  <polygon points="166.3,261.2 151.1,239.3 200.0,214.0" fill="#0969da" fill-opacity="0.03" stroke="#0969da" stroke-width="1.0"/>
+  <polygon points="166.3,261.2 247.3,234.2 200.0,214.0" fill="#0969da" fill-opacity="0.03" stroke="#0969da" stroke-width="1.0"/>
+  <polygon points="281.0,187.0 247.3,234.2 200.0,214.0" fill="#0969da" fill-opacity="0.03" stroke="#0969da" stroke-width="1.0"/>
+  <polygon points="281.0,187.0 247.3,234.2 232.1,212.3" fill="#0969da" fill-opacity="0.03" stroke="#0969da" stroke-width="1.0"/>
+  <polygon points="281.0,187.0 251.9,216.9 232.1,212.3" fill="#0969da" fill-opacity="0.03" stroke="#0969da" stroke-width="1.0"/>
+  <polygon points="281.0,187.0 251.9,216.9 249.3,207.1" fill="#0969da" fill-opacity="0.03" stroke="#0969da" stroke-width="1.0"/>
+  <polygon points="76.0,376.8 130.0,376.8 76.0,322.8" fill="#0969da" fill-opacity="0.15" stroke="#0969da" stroke-width="2.0"/>
+  <polygon points="281.0,187.0 258.5,207.0 249.3,207.1" fill="#bc4c00" fill-opacity="0.15" stroke="#bc4c00" stroke-width="2.0"/>
+  <circle cx="76.0" cy="376.8" r="5.5" fill="#0969da" stroke="#0969da" stroke-width="1.8"/>
+  <text x="66.0" y="392.8" text-anchor="end" font-size="13" font-weight="bold" fill="#0969da">start</text>
+  <circle cx="258.5" cy="207.0" r="6" fill="#bc4c00" stroke="#bc4c00" stroke-width="1.8"/>
+  <text x="270.5" y="225.0" text-anchor="start" font-size="13" font-weight="bold" fill="#bc4c00">end</text>
+  <text x="440" y="84" class="rule" text-anchor="start"><tspan font-weight="bold">Start.</tspan> The first group is the starting point plus one</text>
+  <text x="440" y="105" class="rule" text-anchor="start">point a step away along each parameter. In Qrisp the step</text>
+  <text x="440" y="126" class="rule" text-anchor="start">is 1; it is drawn shorter here.</text>
+  <text x="440" y="147" class="rule" text-anchor="start"><tspan font-weight="bold">Each iteration</tspan> replaces the worst point. The faint</text>
+  <text x="440" y="168" class="rule" text-anchor="start">triangles are the groups after each iteration: the group</text>
+  <text x="440" y="189" class="rule" text-anchor="start">tumbles downhill, stretching where going further pays off</text>
+  <text x="440" y="210" class="rule" text-anchor="start">(E) and shrinking (H) as it closes in on the lowest loss.</text>
+  <text x="440" y="231" class="rule" text-anchor="start"><tspan font-weight="bold">End.</tspan> After the last iteration, minimize returns the</text>
+  <text x="440" y="252" class="rule" text-anchor="start">best point of the final group (orange).</text>
+  <text x="440" y="300" class="caption" text-anchor="start">Moves in this run, one per iteration:</text>
+  <text x="440" y="320" class="caption" text-anchor="start">E   H   H   E   R   H   E   R   H   H   H   H</text>
+  <text x="440" y="360" class="caption" text-anchor="start">Each iteration costs n + 4 loss evaluations for n parameters:</text>
+  <text x="440" y="379" class="caption" text-anchor="start">3 for R, E and H, plus the loss at every point of the group</text>
+  <text x="440" y="398" class="caption" text-anchor="start">again (n + 1). Our model has 4 parameters: 3 + 5 = 8.</text>
+</svg>
