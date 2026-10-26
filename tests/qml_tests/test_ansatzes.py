@@ -380,15 +380,30 @@ def test_ansatzes_accept_nested_list_parameters(constructor):
 
 
 @pytest.mark.parametrize("constructor", [Ansatz.real_amplitudes, Ansatz.hardware_efficient])
-def test_ansatzes_reject_negative_layers(constructor):
+@pytest.mark.parametrize("layers, match", [(-1, "negative"), (1.5, "not an integer"), (True, "not an integer")])
+def test_ansatzes_reject_a_layer_count_that_is_not_a_non_negative_integer(constructor, layers, match):
     """
     A negative layer count leaves the rotation loop empty, applying no gates at
     all and silently returning an untouched QuantumVariable. The parameter count
     check does not catch it, because a negative count expects no parameters and
-    an empty vector satisfies that.
+    an empty vector satisfies that. A fractional count yields a fractional
+    parameter count, which construction truncates.
     """
-    with pytest.raises(ValueError, match="negative"):
-        constructor(num_qubits=3, layers=-1)
+    with pytest.raises(ValueError, match=match):
+        constructor(num_qubits=3, layers=layers)
+
+
+def test_data_reuploading_rejects_an_inner_ansatz_of_another_size():
+    """
+    The inner ansatz acts on the register the reuploading ansatz is applied to,
+    so an inner ansatz configured for another size cannot fit it.
+    """
+    with pytest.raises(ValueError, match="same size"):
+        Ansatz.data_reuploading(
+            num_qubits=3,
+            encoding=Encoding.angle(n_features=3),
+            ansatz=Ansatz.real_amplitudes(num_qubits=2),
+        )
 
 
 @register_pytree_node_class

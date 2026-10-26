@@ -427,6 +427,9 @@ def _derive_range(data, data_range, feature_range, periodic=True):
 
     low, high = feature_range
 
+    if not (np.isfinite(low) and np.isfinite(high)):
+        raise ValueError(f"Tried to scale into the feature range ({low}, {high}), which is not finite.")
+
     if not high > low:
         raise ValueError(f"Tried to scale into an empty feature range ({low}, {high}).")
 
@@ -452,6 +455,11 @@ def _derive_range(data, data_range, feature_range, periodic=True):
         maximum = data.max(axis=0)
     else:
         minimum, maximum = (np.asarray(bound, dtype=float) for bound in data_range)
+
+        if not (np.all(np.isfinite(minimum)) and np.all(np.isfinite(maximum))):
+            raise ValueError(
+                f"Tried to configure an encoder with the data range ({minimum}, {maximum}), which is not finite."
+            )
 
         if not np.all(maximum >= minimum):
             raise ValueError(f"Tried to configure an encoder with the empty data range ({minimum}, {maximum}).")
@@ -560,6 +568,15 @@ class Encoding:
 
         if n_features < 1:
             raise ValueError(f"Tried to configure an encoder for {n_features} features.")
+
+        # A range for a different number of features would only fail to
+        # broadcast once a sample arrives, or broadcast silently from a single
+        # column onto every feature.
+        if scaling is not None and np.shape(scaling[0]) not in ((), (n_features,)):
+            raise ValueError(
+                f"Tried to configure an encoder for {n_features} features with a "
+                f"scaling range for {np.size(scaling[0])}."
+            )
 
         self.n_features = int(n_features)
         self.scaling = scaling
@@ -858,13 +875,22 @@ class Encoding:
         Raises
         ------
         ValueError
+            If ``x`` is not one-dimensional.
+        ValueError
             If ``x`` does not hold exactly ``n_features`` features.
         ValueError
             If ``x`` is complex and the encoder was configured with a scaling.
 
         """
-        # jnp.shape is static under tracing, so unlike qv.size this comparison
-        # also runs inside a traced program, where the bug it catches lives.
+        # jnp.shape is static under tracing, so unlike qv.size these comparisons
+        # also run inside a traced program, where the bugs they catch live.
+        if jnp.ndim(jnp.asarray(x)) != 1:
+            raise ValueError(
+                f"Tried to encode a sample shaped {jnp.shape(x)}. A sample is a "
+                "one-dimensional vector of features, so a batch is encoded one "
+                "sample at a time."
+            )
+
         num_features = jnp.shape(jnp.asarray(x))[0]
 
         if num_features != self.n_features:

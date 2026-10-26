@@ -689,6 +689,13 @@ class Ansatz:
                 "Ansatz.real_amplitudes, and raise layers to re-upload more often."
             )
 
+        if ansatz.num_qubits != num_qubits:
+            raise ValueError(
+                f"Tried to configure a data reuploading ansatz for {num_qubits} qubits "
+                f"around an inner ansatz configured for {ansatz.num_qubits}. Both act "
+                "on the same register, so they must be configured for the same size."
+            )
+
         reuploading = _DataReuploading(num_qubits, layers * ansatz.num_parameters)
         reuploading.layers = layers
         reuploading.encoding = encoding
@@ -823,11 +830,15 @@ class Ansatz:
 
 def _check_layers(layers, name):
     """
-    Rejects a negative layer count.
+    Rejects a layer count that is not a non-negative integer.
 
-    The parameter count check does not catch this, as a negative count expects
-    no parameters and would leave the QuantumVariable untouched.
+    The parameter count check does not catch a negative count, which expects no
+    parameters and would leave the QuantumVariable untouched. A fractional
+    count would yield a fractional parameter count, truncated on construction.
     """
+    if not isinstance(layers, (int, np.integer)) or isinstance(layers, bool):
+        raise ValueError(f"Tried to configure a {name} ansatz with {layers!r} layers, which is not an integer.")
+
     if layers < 0:
         raise ValueError(f"Tried to configure a {name} ansatz with a negative layer count ({layers}).")
 

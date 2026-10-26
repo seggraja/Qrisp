@@ -109,6 +109,68 @@ def test_encoding_rejects_a_sample_of_the_wrong_width_under_tracing(constructor,
         main(jnp.array(features, dtype=float))
 
 
+@pytest.mark.parametrize("features", [np.ones((2, 2)), 0.5])
+def test_encoding_rejects_a_sample_that_is_not_a_vector(features):
+    """
+    Only the length of a sample is compared with the feature count, so a batch
+    whose first dimension happens to match it passes that check and fails later
+    with a message about gates or register sizes instead.
+    """
+    with pytest.raises(ValueError, match="one-dimensional"):
+        Encoding.angle(n_features=2).apply(QuantumFloat(2), features)
+
+
+@pytest.mark.parametrize("constructor", [Encoding.angle, Encoding.amplitude, Encoding.dense_angle, Encoding.basis])
+def test_encoding_rejects_a_sample_that_is_not_a_vector_under_tracing(constructor):
+    """The rank of a sample is static under tracing, so the check runs there too."""
+    encoding = constructor(n_features=2)
+
+    @jaspify
+    def main(x):
+        qf = QuantumFloat(2)
+        encoding.apply(qf, x)
+        return measure(qf)
+
+    with pytest.raises(ValueError, match="one-dimensional"):
+        main(jnp.ones((2, 2)))
+
+
+@pytest.mark.parametrize("constructor", [Encoding.angle, Encoding.amplitude, Encoding.dense_angle])
+@pytest.mark.parametrize(
+    "scaling",
+    [
+        {"data": np.ones((3, 3))},
+        {"data": np.array([[0.0], [1.0]])},
+        {"data_range": ([0.0, 0.0, 0.0], [1.0, 1.0, 1.0])},
+    ],
+)
+def test_encoding_rejects_a_scaling_range_for_another_feature_count(constructor, scaling):
+    """
+    A range for three features fails to broadcast only once a sample arrives,
+    and a range for one feature broadcasts silently onto every feature.
+    """
+    with pytest.raises(ValueError, match="scaling range for"):
+        constructor(n_features=2, **scaling)
+
+
+@pytest.mark.parametrize(
+    "constructor, scaling",
+    [
+        (Encoding.angle, {"data_range": ([0.0, 0.0], [np.inf, 1.0])}),
+        (Encoding.angle, {"data_range": ([np.nan, 0.0], [1.0, 1.0])}),
+        (Encoding.amplitude, {"data_range": (0.0, 1.0), "feature_range": (1.0, np.inf)}),
+        (Encoding.angle, {"data_range": (0.0, 1.0), "feature_range": (np.nan, 1.0)}),
+    ],
+)
+def test_encoding_rejects_a_range_that_is_not_finite(constructor, scaling):
+    """
+    An infinite data range scales its feature onto the lower bound for every
+    sample, and a NaN bound was reported as an empty range.
+    """
+    with pytest.raises(ValueError, match="not finite"):
+        constructor(n_features=2, **scaling)
+
+
 def test_angle_encoding_z_axis_phases():
     """
     Z angle encoding prepares the product state
