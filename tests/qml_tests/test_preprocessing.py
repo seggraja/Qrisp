@@ -85,16 +85,42 @@ def test_minmax_scale_honours_the_requested_range(feature_range):
 
 
 @pytest.mark.parametrize(
-    "feature_range, message",
-    [((0.0, 7.0), "longer than 2\\*pi"), ((1.0, 1.0), "empty feature range")],
+    "feature_range, periodic, message",
+    [
+        ((0.0, 7.0), True, "longer than 2\\*pi"),
+        ((1.0, 1.0), True, "empty feature range"),
+        ((1.0, 1.0), False, "empty feature range"),
+        ((1.0, np.inf), False, "not finite"),
+        ((np.nan, 1.0), True, "not finite"),
+    ],
 )
-def test_minmax_scale_rejects_an_unusable_range(feature_range, message):
+def test_minmax_scale_rejects_an_unusable_range(feature_range, periodic, message):
     """
-    A range needs a positive width to scale onto, and one longer than 2*pi is
-    not injective because rotation angles repeat.
+    A range needs a positive, finite width to scale onto, and one longer than
+    2*pi is not injective when the features are read as rotation angles.
     """
     with pytest.raises(ValueError, match=message):
-        minmax_scale(np.array([[0.0], [1.0]]), feature_range=feature_range)
+        minmax_scale(np.array([[0.0], [1.0]]), feature_range=feature_range, periodic=periodic)
+
+
+def test_minmax_scale_matches_the_scaling_of_amplitude_encoding():
+    """
+    Without the period limit, minmax_scale reproduces the default scaling of
+    amplitude encoding, so scaling in advance and encoding without a scaling
+    prepares the same state as letting the encoder scale.
+    """
+    rng = np.random.default_rng(7)
+    X = rng.normal(size=(5, 3))
+    X_scaled = minmax_scale(X, feature_range=(1.0, 10.0), periodic=False)
+
+    for sample, scaled in zip(X, X_scaled):
+        qf_encoder = QuantumFloat(2)
+        Encoding.amplitude(n_features=3, data=X).apply(qf_encoder, sample)
+
+        qf_scaled = QuantumFloat(2)
+        Encoding.amplitude(n_features=3).apply(qf_scaled, scaled)
+
+        assert np.allclose(qf_encoder.qs.statevector("array"), qf_scaled.qs.statevector("array"))
 
 
 def test_minmax_scale_rejects_a_test_set_with_a_different_feature_count():

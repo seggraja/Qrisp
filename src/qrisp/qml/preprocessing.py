@@ -34,9 +34,9 @@ def _check_finite(X, name):
         raise ValueError(f"Tried to {name} features that are not all finite, i.e. that hold a NaN or an infinity.")
 
 
-def minmax_scale(X_train, X_test=None, feature_range=(0.0, np.pi)):
+def minmax_scale(X_train, X_test=None, feature_range=(0.0, np.pi), periodic=True):
     r"""
-    Scales features into an interval suitable for angle encoding.
+    Scales features into an interval suitable for an encoding.
 
     Each feature is mapped linearly from its range on the training data onto
     ``feature_range``:
@@ -69,6 +69,16 @@ def minmax_scale(X_train, X_test=None, feature_range=(0.0, np.pi)):
     callers who want the full period; the default $[0,\pi]$ avoids the collision
     entirely.
 
+    **Amplitude encoding**
+
+    :meth:`Encoding.amplitude` normalizes the features rather than reading them
+    as angles, so the width of the range is not limited by a period. Pass
+    ``periodic=False`` to lift the limit. Only the ratio of the bounds then
+    reaches the state, and the lower bound should be positive: a range
+    starting at $0$ maps the sample at the minimum of every feature to the zero
+    vector, which has no direction to encode. The range ``(1, 10)`` matches the
+    scaling :meth:`Encoding.amplitude` applies by default.
+
     A feature that is constant across the training data has a zero range. It
     carries no information, and is mapped to the lower bound of
     ``feature_range`` rather than producing a division by zero.
@@ -84,8 +94,13 @@ def minmax_scale(X_train, X_test=None, feature_range=(0.0, np.pi)):
         scaled training features are returned.
     feature_range : tuple[float, float], optional
         The interval to scale into. The default is ``(0, numpy.pi)``. A range
-        longer than $2\pi$ raises a ``ValueError``, since the encodings could
-        not distinguish its endpoints.
+        longer than $2\pi$ raises a ``ValueError`` unless ``periodic`` is
+        ``False``, since the rotation based encodings could not distinguish its
+        endpoints.
+    periodic : bool, optional
+        Whether the features will be read as rotation angles, which limits
+        ``feature_range`` to a width of $2\pi$. The default is ``True``. Pass
+        ``False`` for amplitude encoding.
 
     Returns
     -------
@@ -96,7 +111,8 @@ def minmax_scale(X_train, X_test=None, feature_range=(0.0, np.pi)):
     Raises
     ------
     ValueError
-        If ``feature_range`` is empty or spans more than $2\pi$.
+        If ``feature_range`` is empty or not finite, or spans more than $2\pi$
+        while ``periodic`` is ``True``.
     ValueError
         If ``X_test`` does not have the same number of features as
         ``X_train``.
@@ -141,14 +157,18 @@ def minmax_scale(X_train, X_test=None, feature_range=(0.0, np.pi)):
     """
     low, high = feature_range
 
+    if not (np.isfinite(low) and np.isfinite(high)):
+        raise ValueError(f"Tried to scale into the feature range ({low}, {high}), which is not finite.")
+
     if not high > low:
         raise ValueError(f"Tried to scale into an empty feature range ({low}, {high}).")
 
-    if high - low > 2 * np.pi:
+    if periodic and high - low > 2 * np.pi:
         raise ValueError(
             f"Tried to scale into the feature range ({low}, {high}), which is "
             f"longer than 2*pi. Rotation angles are 2*pi-periodic, so its "
-            "endpoints would encode to the same state."
+            "endpoints would encode to the same state. Pass periodic=False if "
+            "the features are amplitude encoded."
         )
 
     X_train = np.asarray(X_train, dtype=float)
