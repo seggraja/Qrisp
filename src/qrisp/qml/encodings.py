@@ -20,7 +20,7 @@ import warnings
 
 import jax.numpy as jnp
 import numpy as np
-from jax.tree_util import register_pytree_node_class
+from jax.tree_util import register_pytree_node_class, tree_leaves
 
 from qrisp.alg_primitives.state_preparation import prepare
 from qrisp.core.gate_application_functions import h, p, rx, ry, rz
@@ -929,6 +929,17 @@ class Encoding:
             setattr(encoding, name, value)
 
         return encoding
+
+    def __setstate__(self, state):
+        # A subclass defined in a script is rebuilt from its code when loaded
+        # in another process, without running the decorator that registered it
+        # as a PyTree. Unregistered, it is its own single leaf. treedef_is_leaf
+        # cannot tell, as it also holds for a registered node without children.
+        self.__dict__.update(state)
+        leaves = tree_leaves(self)
+
+        if len(leaves) == 1 and leaves[0] is self:
+            register_pytree_node_class(type(self))
 
     def encode(self, qv, x):
         """

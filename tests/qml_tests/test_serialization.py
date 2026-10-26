@@ -200,6 +200,80 @@ def test_custom_encoding_defined_in_a_script_loads_in_a_new_process(tmp_path):
     assert result.stdout.split()[-2:] == ["FlipEncoding", "2"]
 
 
+def test_registered_custom_classes_load_as_pytrees_in_a_new_process(tmp_path):
+    """
+    A class defined in a script is rebuilt from its code when loaded in another
+    process, and the decorator that registered it as a PyTree does not run
+    again. Unregistered, the loaded object is a single opaque leaf and cannot
+    be passed into a traced function. Loading the file a second time finds the
+    class already registered.
+    """
+    filename = tmp_path / "custom.pkl"
+    save_script = textwrap.dedent(
+        f"""
+        from jax.tree_util import register_pytree_node_class
+        from qrisp import ry
+        from qrisp.jasp import jrange
+        from qrisp.qml import Ansatz, Encoding, save_model
+
+        @register_pytree_node_class
+        class DoubleAngleEncoding(Encoding):
+            def encode(self, qv, x):
+                for i in jrange(qv.size):
+                    ry(2 * x[i], qv[i])
+                return qv
+
+        @register_pytree_node_class
+        class RotationAnsatz(Ansatz):
+            def parameter_count(self, num_qubits):
+                return num_qubits
+
+            def apply_gates(self, qv, w):
+                for i in jrange(qv.size):
+                    ry(w[i], qv[i])
+                return qv
+
+        save_model({str(filename)!r}, encoding=DoubleAngleEncoding(n_features=2), ansatz=RotationAnsatz(num_qubits=2))
+        """
+    )
+    load_script = textwrap.dedent(
+        f"""
+        import jax.numpy as jnp
+        from jax.tree_util import tree_flatten, tree_unflatten
+        from qrisp import QuantumFloat, measure
+        from qrisp.jasp import jaspify
+        from qrisp.qml import load_model
+
+        load_model({str(filename)!r})
+        model = load_model({str(filename)!r})
+        encoding, ansatz = model["encoding"], model["ansatz"]
+
+        for part in (encoding, ansatz):
+            leaves, treedef = tree_flatten(part)
+            rebuilt = tree_unflatten(treedef, leaves)
+            print("RESULT", len(leaves) == 1 and leaves[0] is part, type(rebuilt).__name__)
+
+        @jaspify
+        def main(e, a, x, w):
+            qf = QuantumFloat(2)
+            e.apply(qf, x)
+            a.apply(qf, w)
+            return measure(qf)
+
+        print("RESULT", main(encoding, ansatz, jnp.array([jnp.pi / 2, 0.0]), jnp.array([0.0, jnp.pi])))
+        """
+    )
+
+    subprocess.run([sys.executable, "-c", save_script], check=True, capture_output=True)
+    result = subprocess.run([sys.executable, "-c", load_script], check=True, capture_output=True, text=True)
+
+    # The simulator's progress bar shares stdout, so only the marked lines are read.
+    lines = [line.split()[1:] for line in result.stdout.splitlines() if line.startswith("RESULT")]
+
+    # ry(2 * pi/2) flips qubit 0 and ry(pi) flips qubit 1, giving |3>.
+    assert lines == [["False", "DoubleAngleEncoding"], ["False", "RotationAnsatz"], ["3.0"]]
+
+
 def test_saving_nothing_is_rejected(tmp_path):
     with pytest.raises(ValueError, match="no parts"):
         save_model(tmp_path / "model.pkl")
