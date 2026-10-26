@@ -645,11 +645,9 @@ def test_amplitude_encoding_reports_a_sample_a_scaling_zeroed():
     with pytest.raises(ValueError, match="vanishing norm"):
         encoding.apply(QuantumFloat(1), X[0])
 
-    # The check mirrors the tolerance the state preparation applies, so a vector
-    # that is not exactly zero but still too small for it is reported here too,
-    # rather than falling through to the message that names no features.
+    # Unscaled features are checked the same way.
     with pytest.raises(ValueError, match="vanishing norm"):
-        Encoding.amplitude(n_features=2).apply(QuantumFloat(1), [1e-12, 0.0])
+        Encoding.amplitude(n_features=2).apply(QuantumFloat(1), [0.0, 0.0])
 
     # The remedy the message suggests, the default range, has to actually
     # encode that sample.
@@ -657,6 +655,44 @@ def test_amplitude_encoding_reports_a_sample_a_scaling_zeroed():
 
     # Samples away from the minimum were never affected.
     assert encoding.apply(QuantumFloat(1), X[2]) is not None
+
+
+@pytest.mark.parametrize("magnitude", [1e-12, 1e-170, 1e200])
+def test_amplitude_encoding_encodes_tiny_and_huge_vectors_by_direction(magnitude):
+    """
+    Only the direction of a feature vector is encoded, so a vector of tiny or
+    huge entries prepares the same state as a proportional one of ordinary
+    size. Tiny entries fell below the tolerances of the state preparation and
+    huge ones overflowed its norm.
+    """
+    qf = QuantumFloat(1)
+    Encoding.amplitude(n_features=2).apply(qf, magnitude * np.array([1.0, -2.0]))
+
+    expected = np.array([1.0, -2.0]) / np.sqrt(5)
+
+    assert np.isclose(abs(np.vdot(expected, amplitudes_by_state(qf))), 1.0)
+
+
+@pytest.mark.parametrize("magnitude", [1e-12, 1e-170, 1e200])
+def test_amplitude_encoding_encodes_tiny_and_huge_vectors_by_direction_when_traced(magnitude):
+    """
+    Under tracing the same vectors prepared an equal superposition, silently.
+    A Hadamard turns the relative sign of the two amplitudes into probabilities.
+    """
+    encoding = Encoding.amplitude(n_features=2)
+
+    @terminal_sampling
+    def main(x):
+        qf = QuantumFloat(1)
+        encoding.apply(qf, x)
+        h(qf[0])
+        return qf
+
+    distribution = main(jnp.array(magnitude * np.array([1.0, -2.0])))
+
+    # (|0> - 2|1>)/sqrt(5) becomes (-|0> + 3|1>)/sqrt(10) after the Hadamard.
+    assert np.isclose(distribution.get(0, 0.0), 0.1)
+    assert np.isclose(distribution.get(1, 0.0), 0.9)
 
 
 def test_amplitude_encoding_keeps_samples_near_the_minimum_close():

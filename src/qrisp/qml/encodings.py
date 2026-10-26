@@ -255,11 +255,7 @@ def _amplitude_encoding(qv, x, pad=True):
         # produced them. A scaled encoder reaches it for the sample sitting at
         # the minimum of every feature, which is an ordinary row of a training
         # set rather than a degenerate input.
-        #
-        # The condition mirrors the one prepare() applies to the padded vector,
-        # so that every vector it would reject is reported here instead, in
-        # terms of the features the caller passed.
-        if np.isclose(np.linalg.norm(np.asarray(x)), 0.0):
+        if not np.any(np.asarray(x)):
             raise ValueError(
                 "Tried to amplitude encode a feature vector of vanishing norm, "
                 "which has no direction to encode. A scaling maps the sample at "
@@ -268,6 +264,13 @@ def _amplitude_encoding(qv, x, pad=True):
                 "such a vector. Pass a feature_range with a positive lower bound, "
                 "such as the default (1, 10), to keep it encodable."
             )
+
+    # The state encodes only the direction of x, which dividing by its largest
+    # magnitude keeps. Without it, a vector of tiny entries falls below the
+    # tolerances of the state preparation, and one of huge entries overflows
+    # its norm, both of which encode a wrong state.
+    largest = jnp.max(jnp.abs(x))
+    x = x / jnp.where(largest > 0, largest, 1.0)
 
     if pad:
         num_features = jnp.shape(x)[0]
