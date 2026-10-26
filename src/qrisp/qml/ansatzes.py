@@ -380,15 +380,17 @@ def hardware_efficient_size(num_qubits, layers=1, rotations=("y",)):
     Raises
     ------
     ValueError
-        If an axis is repeated in ``rotations``.
+        If an axis follows itself in ``rotations``.
 
     """
-    if len(set(rotations)) != len(rotations):
-        raise ValueError(
-            f"Repeated rotation axis in {tuple(rotations)} for the hardware efficient ansatz. "
-            f"Consecutive rotations about the same axis compose into a single one, "
-            f"so the repetition adds parameters the circuit cannot use."
-        )
+    for axis, next_axis in zip(rotations, rotations[1:]):
+        if axis == next_axis:
+            raise ValueError(
+                f"Repeated rotation axis in {tuple(rotations)} for the hardware efficient ansatz. "
+                f"Consecutive rotations about the same axis compose into a single one, "
+                f"so the repetition adds parameters the circuit cannot use. An axis may "
+                f"recur once another axis separates the repeats, as in ('z', 'y', 'z')."
+            )
 
     return (layers + 1) * len(rotations) * num_qubits
 
@@ -502,8 +504,10 @@ class Ansatz:
             The number of rotation and entangling layer repetitions. The default
             is ``1``.
         rotations : tuple[str], optional
-            The rotation axes applied to each qubit in a rotation layer. The
-            default is ``("y",)``.
+            The rotation axes applied to each qubit in a rotation layer, in
+            order. The default is ``("y",)``. An axis may recur when another
+            axis separates the repeats: ``("z", "y", "z")`` parameterizes an
+            arbitrary single qubit rotation up to a global phase.
         entangler : {'cx', 'cz'}, optional
             The two qubit gate of the entangling layers. The default is
             ``'cx'``.

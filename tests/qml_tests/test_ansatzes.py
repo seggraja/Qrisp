@@ -23,7 +23,7 @@ import numpy as np
 import pytest
 from jax.tree_util import register_pytree_node_class
 
-from qrisp import QuantumFloat, measure, ry
+from qrisp import QuantumFloat, h, measure, ry
 from qrisp.jasp import jaspify, jrange
 from qrisp.qml import (
     Ansatz,
@@ -43,7 +43,7 @@ def count_gates(qv, name):
 
 @pytest.mark.parametrize(
     "num_qubits, layers, rotations, expected",
-    [(3, 2, ("y",), 9), (3, 2, ("y", "z"), 18), (4, 1, ("y",), 8), (2, 0, ("y",), 2)],
+    [(3, 2, ("y",), 9), (3, 2, ("y", "z"), 18), (4, 1, ("y",), 8), (2, 0, ("y",), 2), (2, 1, ("z", "y", "z"), 12)],
 )
 def test_hardware_efficient_size(num_qubits, layers, rotations, expected):
     """
@@ -488,11 +488,11 @@ def test_ansatz_without_hooks_reports_what_is_missing():
         Incomplete(num_qubits=2)
 
 
-@pytest.mark.parametrize("rotations", [("y", "y"), ("x", "y", "x")])
+@pytest.mark.parametrize("rotations", [("y", "y"), ("x", "y", "y"), ("z", "z", "y")])
 def test_hardware_efficient_rejects_repeated_rotation_axes(rotations):
     """
-    Two rotations about the same axis on the same qubit compose into a single
-    rotation with the summed angle, so a repeated axis inflates the parameter
+    Two consecutive rotations about the same axis compose into a single
+    rotation with the summed angle, so the repetition inflates the parameter
     count with parameters the circuit cannot use independently.
     """
     with pytest.raises(ValueError, match="Repeated rotation axis"):
@@ -500,6 +500,31 @@ def test_hardware_efficient_rejects_repeated_rotation_axes(rotations):
 
     with pytest.raises(ValueError, match="Repeated rotation axis"):
         hardware_efficient_size(3, rotations=rotations)
+
+
+def test_hardware_efficient_applies_an_axis_separated_by_another():
+    """
+    A rotation about another axis in between keeps two rotations about the same
+    axis from composing, so Z-Y-Z is a full single qubit rotation with three
+    independent angles. The register starts in |+>, where the first Z rotation
+    is observable, and each angle differs, so a dropped or reordered gate
+    changes the state.
+    """
+    a, b, c = 0.3, 1.1, 2.0
+
+    qf = QuantumFloat(1)
+    h(qf[0])
+    Ansatz.hardware_efficient(num_qubits=1, layers=0, rotations=("z", "y", "z")).apply(qf, [a, b, c])
+
+    def rz(t):
+        return np.diag([np.exp(-1j * t / 2), np.exp(1j * t / 2)])
+
+    def ry_matrix(t):
+        return np.array([[np.cos(t / 2), -np.sin(t / 2)], [np.sin(t / 2), np.cos(t / 2)]])
+
+    expected = rz(c) @ ry_matrix(b) @ rz(a) @ (np.array([1.0, 1.0]) / np.sqrt(2))
+
+    assert np.isclose(abs(np.vdot(expected, statevector_array(qf))), 1.0)
 
 
 def test_data_reuploading_rejects_a_reuploading_inner_ansatz():
