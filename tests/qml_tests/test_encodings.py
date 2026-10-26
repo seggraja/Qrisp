@@ -469,9 +469,10 @@ def test_rotation_encodings_reject_a_feature_range_longer_than_a_turn(constructo
 
 def test_amplitude_encoding_accepts_a_feature_range_of_any_width():
     """
-    Amplitude encoding normalizes the features, so the width of the range never
-    reaches the state and the rotation periodicity limit does not apply. The
-    range is rejected only when it is empty, which no scaling can use.
+    Amplitude encoding normalizes the features, so the rotation periodicity
+    limit does not apply, and two ranges that are multiples of each other
+    encode every sample to the same state. The range is rejected only when it
+    is empty, which no scaling can use.
     """
     data = np.array([[1.0, 2.0], [3.0, 4.0]])
 
@@ -498,13 +499,13 @@ def test_amplitude_encoding_accepts_a_feature_range_of_any_width():
 def test_amplitude_encoding_reports_a_sample_a_scaling_zeroed():
     """
     A scaling maps the sample sitting at the minimum of every feature onto the
-    lower bound of the feature range, so the default range starting at 0 turns
-    an ordinary row of a training set into a zero vector. Without a check here
-    it reaches the state preparation, which reports a statevector of zero norm
-    and names neither the sample nor the scaling that produced it.
+    lower bound of the feature range, so a range starting at 0 turns an
+    ordinary row of a training set into a zero vector. Without a check here it
+    reaches the state preparation, which reports a statevector of zero norm and
+    names neither the sample nor the scaling that produced it.
     """
     X = np.array([[0.0, 0.0], [1.0, 2.0], [2.0, 5.0]])
-    encoding = Encoding.amplitude(n_features=2, data=X)
+    encoding = Encoding.amplitude(n_features=2, data=X, feature_range=(0.0, np.pi))
 
     with pytest.raises(ValueError, match="vanishing norm"):
         encoding.apply(QuantumFloat(1), X[0])
@@ -515,12 +516,55 @@ def test_amplitude_encoding_reports_a_sample_a_scaling_zeroed():
     with pytest.raises(ValueError, match="vanishing norm"):
         Encoding.amplitude(n_features=2).apply(QuantumFloat(1), [1e-12, 0.0])
 
-    # The remedy the message suggests has to actually encode that sample.
-    shifted = Encoding.amplitude(n_features=2, data=X, feature_range=(1.0, 2.0))
-    assert shifted.apply(QuantumFloat(1), X[0]) is not None
+    # The remedy the message suggests, the default range, has to actually
+    # encode that sample.
+    assert Encoding.amplitude(n_features=2, data=X).apply(QuantumFloat(1), X[0]) is not None
 
     # Samples away from the minimum were never affected.
     assert encoding.apply(QuantumFloat(1), X[2]) is not None
+
+
+def test_amplitude_encoding_keeps_samples_near_the_minimum_close():
+    """
+    Two samples differing only slightly near the minimum of every feature
+    encode to nearly the same state under the default range. A range starting
+    at 0 scales them onto tiny vectors whose directions differ widely, so the
+    same two samples encode to clearly different states.
+    """
+    X = np.array([[0.0, 0.0], [1.0, 2.0], [2.0, 5.0]])
+    near_minimum = X.min(axis=0) + 1e-3 * np.array([[1.0, 2.0], [2.0, 1.0]]) * np.ptp(X, axis=0)
+
+    def fidelity(encoding):
+        states = []
+        for sample in near_minimum:
+            qf = QuantumFloat(1)
+            encoding.apply(qf, sample)
+            states.append(amplitudes_by_state(qf))
+        return abs(np.vdot(*states)) ** 2
+
+    assert fidelity(Encoding.amplitude(n_features=2, data=X)) > 0.999
+    assert np.isclose(fidelity(Encoding.amplitude(n_features=2, data=X, feature_range=(0.0, np.pi))), 0.64)
+
+
+def test_amplitude_encoding_encodes_the_minimum_sample_when_traced():
+    """
+    Under tracing a zero vector cannot be reported, and it reached the state
+    preparation as an undefined state. The default range maps the sample at the
+    minimum of every feature onto equal positive amplitudes instead.
+    """
+    X = np.array([[0.0, 0.0], [1.0, 2.0], [2.0, 5.0]])
+    encoding = Encoding.amplitude(n_features=2, data=X)
+
+    @terminal_sampling
+    def main(x):
+        qf = QuantumFloat(1)
+        encoding.apply(qf, x)
+        return qf
+
+    distribution = main(jnp.array(X[0]))
+
+    assert np.isclose(distribution.get(0, 0.0), 0.5)
+    assert np.isclose(distribution.get(1, 0.0), 0.5)
 
 
 def test_encoding_without_its_hook_reports_what_is_missing():

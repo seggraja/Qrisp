@@ -265,8 +265,8 @@ def _amplitude_encoding(qv, x, pad=True):
                 "which has no direction to encode. A scaling maps the sample at "
                 "the minimum of every feature onto the lower bound of the feature "
                 "range, so a feature_range starting at 0 turns that sample into "
-                "such a vector. Pass a feature_range with a non-zero lower bound, "
-                "such as (1, 2), to keep it encodable."
+                "such a vector. Pass a feature_range with a positive lower bound, "
+                "such as the default (1, 10), to keep it encodable."
             )
 
     if pad:
@@ -638,7 +638,7 @@ class Encoding:
         return encoding
 
     @classmethod
-    def amplitude(cls, n_features, data=None, data_range=None, feature_range=(0.0, np.pi), pad=True):
+    def amplitude(cls, n_features, data=None, data_range=None, feature_range=(1.0, 10.0), pad=True):
         r"""
         Returns an encoder placing the features in a register's amplitudes.
 
@@ -647,6 +647,30 @@ class Encoding:
         internally, as a quantum state has unit norm, so only their direction is
         encoded. Complex features are encoded with their phases, provided no
         scaling is configured.
+
+        **What normalization keeps**
+
+        Normalization discards the magnitude of a feature vector: $x$ and $cx$
+        encode the same state for every $c \neq 0$. Two samples whose features
+        are proportional are therefore indistinguishable after encoding. Where
+        the magnitude matters, it has to be carried by a feature of its own.
+
+        **The default feature range**
+
+        A scaling maps the sample at the minimum of every feature onto the
+        lower bound of ``feature_range``. A lower bound of $0$ turns that sample
+        into the zero vector, which has no direction to encode, and makes the
+        samples near it unstable: two samples differing only slightly near the
+        minimum can encode to clearly different states. The default range
+        therefore starts above zero, so every scaled sample has a direction and
+        nearby samples encode to nearby states.
+
+        Since only the direction is encoded, the ratio of the upper to the lower
+        bound sets the contrast between samples, not the bounds themselves. A
+        larger ratio separates the states of dissimilar samples further, but
+        lets the largest features dominate the state, so that a feature at its
+        minimum contributes little. The default ratio of $10$ keeps every
+        feature at least a tenth of the largest.
 
         **Cost under tracing**
 
@@ -669,9 +693,11 @@ class Encoding:
             of derived from data. Mutually exclusive with ``data``.
         feature_range : tuple[float, float], optional
             The interval to scale into, if a scaling was requested. The default
-            is ``(0, numpy.pi)``. Unlike the rotation based encodings this one
-            accepts a range of any width, since the features are normalized and
-            the width of the interval therefore does not reach the state.
+            is ``(1, 10)``. Unlike the rotation based encodings this one accepts
+            a range of any width, since the features are normalized rather than
+            read as angles. A range containing zero can produce the zero
+            vector, which is rejected when not tracing. Under tracing it cannot
+            be reported and yields an undefined state.
         pad : bool, optional
             Whether to zero-pad the feature vector up to $2^n$ entries. The
             default is ``True``. If ``False``, ``n_features`` must be exactly
