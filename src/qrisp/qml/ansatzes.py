@@ -657,7 +657,9 @@ class Ansatz:
         num_qubits : int
             The size of the QuantumVariable the ansatz is applied to.
         encoding : Encoding
-            Applied at the start of each layer.
+            Applied at the start of each layer. It acts on the state the
+            previous layers left, so an encoding defined only on a register in
+            $\ket{0}$, such as :meth:`Encoding.amplitude`, is rejected.
         ansatz : Ansatz
             Applied after each encoding.
         layers : int, optional
@@ -695,6 +697,15 @@ class Ansatz:
         # inner ansatz is applied as apply(qv, w_layer). Nesting one inside
         # another would therefore raise a TypeError once applied, so it is
         # rejected here rather than at the first evaluation.
+        if getattr(encoding, "_from_zero_state", False):
+            raise ValueError(
+                "Tried to re-upload an encoding that prepares a state from |0>, such "
+                "as Encoding.amplitude. Only the first layer finds the register in "
+                "|0>, so the later layers would apply it to a state it is not "
+                "defined on. Use an encoding built from rotations, such as "
+                "Encoding.angle or Encoding.dense_angle."
+            )
+
         if isinstance(ansatz, _DataReuploading):
             raise ValueError(
                 "Tried to use a data reuploading ansatz as the inner ansatz of "

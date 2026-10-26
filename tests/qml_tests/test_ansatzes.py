@@ -393,6 +393,21 @@ def test_ansatzes_reject_a_layer_count_that_is_not_a_non_negative_integer(constr
         constructor(num_qubits=3, layers=layers)
 
 
+def test_data_reuploading_rejects_an_encoding_defined_only_from_zero():
+    """
+    Amplitude encoding prepares a state from |0>, which the register holds only
+    before the first layer. Applied to the state later layers leave, its result
+    is not the encoded vector, and differs between the traced and the untraced
+    path.
+    """
+    with pytest.raises(ValueError, match="prepares a state from"):
+        Ansatz.data_reuploading(
+            num_qubits=2,
+            encoding=Encoding.amplitude(n_features=4),
+            ansatz=Ansatz.real_amplitudes(num_qubits=2),
+        )
+
+
 def test_data_reuploading_rejects_an_inner_ansatz_of_another_size():
     """
     The inner ansatz acts on the register the reuploading ansatz is applied to,

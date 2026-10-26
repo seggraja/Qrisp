@@ -212,8 +212,8 @@ def _amplitude_encoding(qv, x, pad=True):
     Parameters
     ----------
     qv : QuantumVariable
-        The QuantumVariable to encode the features into. Holds $2^n$ features
-        for $n$ qubits.
+        The QuantumVariable to encode the features into, in $\ket{0}$. Holds
+        $2^n$ features for $n$ qubits.
     x : list[float] or list[complex] or numpy.ndarray
         The feature vector. Must not have zero norm, as it is normalized.
     pad : bool, optional
@@ -562,6 +562,10 @@ class Encoding:
 
     """
 
+    # Whether the encoding is defined only on a register in |0>, as a state
+    # preparation is, rather than as gates that act on any state.
+    _from_zero_state = False
+
     def __init__(self, n_features, scaling=None):
         if not isinstance(n_features, (int, np.integer)) or isinstance(n_features, bool):
             raise ValueError(f"Tried to configure an encoder for {n_features!r} features, which is not an integer.")
@@ -688,6 +692,14 @@ class Encoding:
         lets the largest features dominate the state, so that a feature at its
         minimum contributes little. The default ratio of $10$ keeps every
         feature at least a tenth of the largest.
+
+        **The register must be in** $\ket{0}$
+
+        The encoding prepares a state rather than rotating one, so it is defined
+        only on a register in $\ket{0}^{\otimes n}$. Applied to any other state
+        its result is not the encoded vector. For the same reason it cannot be
+        the encoding of :meth:`Ansatz.data_reuploading`, whose later layers act
+        on a register the earlier ones have changed.
 
         **Cost under tracing**
 
@@ -1021,6 +1033,8 @@ class _AngleEncoding(Encoding):
 
 @register_pytree_node_class
 class _AmplitudeEncoding(Encoding):
+    _from_zero_state = True
+
     def _options(self):
         return {"pad": self.pad}
 
