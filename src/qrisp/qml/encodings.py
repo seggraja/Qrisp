@@ -192,6 +192,10 @@ def _amplitude_encoding(qv, x, pad=True):
     unit norm. Only the direction of $x$ is therefore encoded; its length is
     not recoverable from the resulting state.
 
+    Complex features are encoded with their phases. A phase shared by every
+    feature is a global phase of the state and is not observable, so $x$ and
+    $e^{i\varphi}x$ encode the same state, as do $x$ and $-x$.
+
     **Feature vectors that are not a power of two**
 
     A register of $n$ qubits holds exactly $2^n$ amplitudes, while feature
@@ -210,7 +214,7 @@ def _amplitude_encoding(qv, x, pad=True):
     qv : QuantumVariable
         The QuantumVariable to encode the features into. Holds $2^n$ features
         for $n$ qubits.
-    x : list[float] or numpy.ndarray
+    x : list[float] or list[complex] or numpy.ndarray
         The feature vector. Must not have zero norm, as it is normalized.
     pad : bool, optional
         Whether to zero-pad the feature vector up to $2^n$ entries. The default
@@ -225,6 +229,8 @@ def _amplitude_encoding(qv, x, pad=True):
 
     """
     tracing = check_for_tracing_mode()
+    x = jnp.asarray(x)
+    x = x.astype(jnp.promote_types(x.dtype, jnp.float64))
 
     if not tracing:
         num_amplitudes = 2**qv.size
@@ -253,7 +259,7 @@ def _amplitude_encoding(qv, x, pad=True):
         # The condition mirrors the one prepare() applies to the padded vector,
         # so that every vector it would reject is reported here instead, in
         # terms of the features the caller passed.
-        if np.isclose(np.linalg.norm(np.asarray(x, dtype=float)), 0.0):
+        if np.isclose(np.linalg.norm(np.asarray(x)), 0.0):
             raise ValueError(
                 "Tried to amplitude encode a feature vector of vanishing norm, "
                 "which has no direction to encode. A scaling maps the sample at "
@@ -264,7 +270,6 @@ def _amplitude_encoding(qv, x, pad=True):
             )
 
     if pad:
-        x = jnp.asarray(x, dtype=float)
         num_features = jnp.shape(x)[0]
 
         if tracing:
@@ -640,7 +645,8 @@ class Encoding:
         A register of $n$ qubits holds $2^n$ amplitudes, so this encoding
         represents $2^n$ features in $n$ qubits. The features are normalized
         internally, as a quantum state has unit norm, so only their direction is
-        encoded.
+        encoded. Complex features are encoded with their phases, provided no
+        scaling is configured.
 
         **Cost under tracing**
 
@@ -827,6 +833,8 @@ class Encoding:
         ------
         ValueError
             If ``x`` does not hold exactly ``n_features`` features.
+        ValueError
+            If ``x`` is complex and the encoder was configured with a scaling.
 
         """
         # jnp.shape is static under tracing, so unlike qv.size this comparison
@@ -904,6 +912,13 @@ class Encoding:
         """
         if self.scaling is None:
             return x
+
+        if jnp.iscomplexobj(jnp.asarray(x)):
+            raise ValueError(
+                "Tried to scale complex features into a feature range. A range "
+                "orders real values only, so complex features are encoded without "
+                "a scaling: pass neither data nor data_range."
+            )
 
         scale, offset, (low, high) = self.scaling
 

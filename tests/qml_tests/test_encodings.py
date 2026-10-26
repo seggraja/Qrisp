@@ -23,7 +23,7 @@ import numpy as np
 import pytest
 from jax.tree_util import register_pytree_node_class
 
-from qrisp import BasisPreparationWarning, QuantumFloat, h, measure, ry
+from qrisp import BasisPreparationWarning, QuantumFloat, h, measure, ry, s
 from qrisp.jasp import jaspify, jrange, terminal_sampling
 from qrisp.qml import Encoding
 
@@ -187,6 +187,87 @@ def test_amplitude_encoding_without_padding_requires_exact_length():
     """pad=False opts out of zero-padding, so the length must match exactly."""
     with pytest.raises(ValueError, match="pad=True"):
         Encoding.amplitude(n_features=4, pad=False).apply(QuantumFloat(3), [1.0, 2.0, 3.0, 4.0])
+
+
+@pytest.mark.parametrize("container", [list, tuple, np.array])
+def test_amplitude_encoding_without_padding_accepts_any_sequence(container):
+    """pad=False accepts the same feature sequences as the padded default."""
+    qf = QuantumFloat(2)
+    Encoding.amplitude(n_features=4, pad=False).apply(qf, container([1.0, -2.0, 3.0, 4.0]))
+
+    assert np.allclose(amplitudes_by_state(qf), np.array([1.0, -2.0, 3.0, 4.0]) / np.sqrt(30))
+
+
+@pytest.mark.parametrize("pad", [True, False])
+@pytest.mark.parametrize("features", [[1j, 0.0, -2.0, 1 - 1j], [0.0, 1j, 0.0, 0.0]])
+def test_amplitude_encoding_keeps_complex_phases(features, pad):
+    """
+    Complex features keep their phases, and a purely imaginary vector is not
+    mistaken for one of zero norm. The overlap ignores the global phase, which
+    the state preparation is free to choose.
+    """
+    qf = QuantumFloat(2)
+    Encoding.amplitude(n_features=4, pad=pad).apply(qf, features)
+
+    expected = np.array(features) / np.linalg.norm(features)
+
+    assert np.isclose(abs(np.vdot(expected, amplitudes_by_state(qf))), 1.0)
+
+
+@pytest.mark.parametrize("phase_readout", [False, True])
+def test_amplitude_encoding_keeps_complex_phases_when_traced(phase_readout):
+    """
+    The traced path keeps complex phases on a register wider than the features
+    need. A Hadamard on the first qubit turns the real part of each relative
+    phase into a probability, and an S gate before it the imaginary part.
+    """
+    features = np.array([1.0, 1j, -1.0, -1j, 2j])
+    encoding = Encoding.amplitude(n_features=len(features))
+
+    @terminal_sampling
+    def main(x):
+        qf = QuantumFloat(4)
+        encoding.apply(qf, x)
+        if phase_readout:
+            s(qf[0])
+        h(qf[0])
+        return qf
+
+    amplitudes = np.zeros(16, dtype=complex)
+    amplitudes[: len(features)] = features / np.linalg.norm(features)
+
+    pairs = amplitudes.reshape(-1, 2)
+    if phase_readout:
+        pairs = pairs * np.array([1, 1j])
+    mixed = np.stack([pairs[:, 0] + pairs[:, 1], pairs[:, 0] - pairs[:, 1]], axis=1) / np.sqrt(2)
+    expected = np.abs(mixed.ravel()) ** 2
+
+    distribution = main(jnp.array(features))
+    observed = np.array([distribution.get(i, 0.0) for i in range(16)])
+
+    assert np.allclose(observed, expected)
+
+
+def test_scaled_encoding_rejects_complex_features():
+    """A feature range orders real values only, so it cannot scale complex ones."""
+    encoding = Encoding.amplitude(n_features=2, data_range=(0.0, 1.0))
+
+    with pytest.raises(ValueError, match="complex features"):
+        encoding.apply(QuantumFloat(1), [1.0, 1j])
+
+
+def test_scaled_encoding_rejects_complex_features_when_traced():
+    """The complex dtype is known while tracing, so the rejection runs there too."""
+    encoding = Encoding.amplitude(n_features=2, data_range=(0.0, 1.0))
+
+    @jaspify
+    def main(x):
+        qf = QuantumFloat(1)
+        encoding.apply(qf, x)
+        return measure(qf)
+
+    with pytest.raises(ValueError, match="complex features"):
+        main(jnp.array([1.0, 1j]))
 
 
 def test_amplitude_encoding_without_padding_rejects_a_feature_count_no_register_holds():
