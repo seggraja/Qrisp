@@ -19,9 +19,10 @@
 import numpy as np
 import pytest
 
-from qrisp import QuantumFloat
+from qrisp import QuantumFloat, cx, ry
+from qrisp.jasp import jaspify
 from qrisp.operators import X, Z
-from qrisp.qml import Encoding, expectation
+from qrisp.qml import Encoding, expectation, parameter_shift
 
 # Coarse enough to keep the suite fast, tight enough that a wrong sign or a
 # swapped entry cannot pass.
@@ -123,3 +124,100 @@ def test_expectation_rejects_an_empty_sequence():
 
     with pytest.raises(ValueError, match="empty sequence"):
         expectation(state_prep, [])
+
+
+def direct(function):
+    return function
+
+
+def traced(function):
+    return jaspify(function, terminal_sampling=True)
+
+
+def rotated_qubit(x, w):
+    qf = QuantumFloat(1)
+    ry(x[0], qf[0])
+    ry(w[0], qf[0])
+    return qf
+
+
+@pytest.mark.parametrize("x, w", [(0.3, 0.4), (1.0, 2.0), (2.5, -0.4)])
+def test_parameter_shift_gives_the_derivative_of_a_rotation(x, w):
+    """
+    Two rotations about the same axis give <Z> = cos(x + w), whose derivative
+    in either angle is -sin(x + w). A wrong sign, a missing factor of one half
+    or swapped shifts each move the result by more than the tolerance.
+    """
+    value, (dx, dw) = parameter_shift(rotated_qubit, Z(0), precision=PRECISION, argnums=(0, 1))(
+        np.array([x]), np.array([w])
+    )
+
+    assert np.isclose(value, np.cos(x + w), atol=TOLERANCE)
+    assert np.allclose([dx[0], dw[0]], -np.sin(x + w), atol=TOLERANCE)
+
+
+def entangled_pair(x):
+    qf = QuantumFloat(2)
+    ry(x[0], qf[0])
+    ry(x[1], qf[1])
+    cx(qf[0], qf[1])
+    return qf
+
+
+@pytest.mark.parametrize("run", [direct, traced])
+def test_parameter_shift_puts_entries_in_rows_and_observables_in_columns(run):
+    """
+    After the CX, <Z0> = cos x0 and <Z1> = cos x0 cos x1. Every entry of the
+    derivative array differs from its transposed partner, so a transposed
+    result fails, on the traced path as well as without tracing.
+    """
+    x = np.array([0.6, 1.2])
+
+    values, derivatives = run(parameter_shift(entangled_pair, [Z(0), Z(1)], precision=PRECISION))(x)
+
+    expected = [
+        [-np.sin(x[0]), -np.sin(x[0]) * np.cos(x[1])],
+        [0.0, -np.cos(x[0]) * np.sin(x[1])],
+    ]
+    assert np.allclose(values, [np.cos(x[0]), np.cos(x[0]) * np.cos(x[1])], atol=TOLERANCE)
+    assert np.shape(derivatives) == (2, 2)
+    assert np.allclose(derivatives, expected, atol=TOLERANCE)
+
+
+def separate_qubits(x, w):
+    qf = QuantumFloat(2)
+    ry(x[0], qf[0])
+    ry(w[0], qf[1])
+    return qf
+
+
+@pytest.mark.parametrize("argnums, expected", [(0, 0.0), (1, -np.sin(0.8))])
+def test_parameter_shift_differentiates_the_argument_at_argnums(argnums, expected):
+    """
+    The observable depends on w alone, so its derivative is zero in x and
+    -sin w in w. Differentiating the wrong argument swaps the two. A single
+    position returns one array rather than a tuple of them.
+    """
+    _, derivatives = parameter_shift(separate_qubits, Z(1), precision=PRECISION, argnums=argnums)(
+        np.array([0.3]), np.array([0.8])
+    )
+
+    assert not isinstance(derivatives, tuple)
+    assert np.isclose(derivatives[0], expected, atol=TOLERANCE)
+
+
+@pytest.mark.parametrize("run", [direct, traced])
+def test_parameter_shift_rejects_an_argument_that_is_not_one_dimensional(run):
+    """
+    A matrix of angles has no single entry to shift per row of the result.
+    The shape is static under tracing, so the check also runs there.
+    """
+
+    def state_prep(x):
+        qf = QuantumFloat(2)
+        ry(x[0, 0], qf[0])
+        ry(x[1, 1], qf[1])
+        return qf
+
+    with pytest.raises(ValueError, match="one-dimensional"):
+        run(parameter_shift(state_prep, Z(0), precision=PRECISION))(np.zeros((2, 2)))

@@ -18,7 +18,7 @@
 
 import jax.numpy as jnp
 
-__all__ = ["expectation"]
+__all__ = ["expectation", "parameter_shift"]
 
 
 def expectation(state_prep, observables, precision=0.01):
@@ -147,7 +147,9 @@ def expectation(state_prep, observables, precision=0.01):
 
     Note the optimizers available through :func:`qrisp.jasp.minimize` are
     gradient-free, so a hybrid model is trained without differentiating
-    through the quantum block.
+    through the quantum block. To train with gradients instead,
+    :func:`parameter_shift` returns the derivatives of the expectation values
+    alongside the values themselves.
 
     """
     # A single operator is identified by what it provides rather than by what
@@ -166,3 +168,154 @@ def expectation(state_prep, observables, precision=0.01):
         return jnp.array([ev_function(*args) for ev_function in ev_functions])
 
     return expectation_eval_function
+
+
+def parameter_shift(state_prep, observables, precision=0.01, argnums=0):
+    r"""
+    Estimates expectation values together with their derivatives, using the
+    parameter shift rule.
+
+    Let an argument $\theta_k$ enter the circuit as the angle of a single
+    rotation. Then every expectation value is a function of the form
+    $\alpha + \beta \cos\theta_k + \gamma \sin\theta_k$ in that argument, and its
+    derivative is given exactly by two further evaluations:
+
+    .. math::
+
+        \frac{\partial \braket{O}}{\partial \theta_k}
+        = \frac{\braket{O}(\theta_k + \pi/2) - \braket{O}(\theta_k - \pi/2)}{2}
+
+    Unlike a finite difference, the shift is large, so the sampling noise of
+    the two evaluations is not amplified. A vector argument with $n$ entries
+    costs $2n$ evaluations on top of the one at the unshifted point.
+
+    The rule holds when every entry of a differentiated argument is, unchanged,
+    the angle of exactly one rotation $R_X$, $R_Y$, $R_Z$ or phase gate, and
+    appears nowhere else in the circuit. This is the case for the parameters of
+    the built-in ansatzes, and for the features of :meth:`Encoding.angle` and
+    :meth:`Encoding.dense_angle` configured without ``data`` or ``data_range``.
+    It is not the case for features an encoder scales before they reach a gate,
+    for the features of :meth:`Encoding.amplitude` and :meth:`Encoding.basis`,
+    nor for the features of :meth:`Ansatz.data_reuploading`, which enter the
+    circuit once per layer. An encoding or ansatz of your own satisfies it only
+    if it places each entry, unchanged, in a single gate. Differentiating any
+    other argument returns numbers that are not its derivatives, without
+    raising an error. To differentiate scaled features, scale them before they
+    are passed, for instance with :func:`minmax_scale`, and configure the
+    encoder without a scaling.
+
+    Parameters
+    ----------
+    state_prep : callable
+        A function returning a QuantumVariable, as for :func:`expectation`.
+    observables : QubitOperator or iterable[QubitOperator]
+        The observable, or a sequence of observables to estimate separately.
+    precision : float, optional
+        The precision with which each expectation value is estimated, shifted
+        or not. The default is ``0.01``.
+    argnums : int or tuple[int], optional
+        The positions of the arguments of ``state_prep`` to differentiate. Each
+        of them must be one-dimensional. The default is ``0``.
+
+    Returns
+    -------
+    callable
+        A function that takes the arguments of ``state_prep`` and returns a
+        pair. The first entry holds the expectation values, as returned by
+        :func:`expectation`. The second holds the derivatives: for an argument
+        with $n$ entries an array with $n$ rows, row $k$ holding the derivatives
+        of the expectation values with respect to entry $k$. If ``argnums`` is
+        a tuple, the second entry is a tuple with one such array per position.
+
+    Raises
+    ------
+    ValueError
+        If a differentiated argument is not one-dimensional.
+
+    Examples
+    --------
+
+    One feature and one parameter, each the angle of an $R_Y$ rotation, give
+    $\braket{Z} = \cos(x_0 + w_0)$.
+
+    ::
+
+        import numpy as np
+        from qrisp import QuantumFloat
+        from qrisp.operators import Z
+        from qrisp.qml import Ansatz, Encoding, parameter_shift
+
+        encoding = Encoding.angle(n_features=1)
+        ansatz = Ansatz.real_amplitudes(num_qubits=1, layers=0)
+
+        def state_prep(x, w):
+            qf = QuantumFloat(1)
+            encoding.apply(qf, x)
+            ansatz.apply(qf, w)
+            return qf
+
+        value_and_derivatives = parameter_shift(state_prep, Z(0), argnums=(0, 1))
+
+    At $x_0 + w_0 = \pi/2$ both derivatives are $-\sin(\pi/2) = -1$. The two
+    shifted states are $\ket{1}$ and $\ket{0}$, so these derivatives carry no
+    sampling noise.
+
+    >>> value, (dx, dw) = value_and_derivatives(np.array([np.pi / 2]), np.array([0.0]))
+    >>> float(dx[0]), float(dw[0])
+    (-1.0, -1.0)
+
+    **Training with gradients**
+
+    The derivatives connect to classical code on either side of the circuit
+    through the chain rule. A classical layer in front of the circuit is
+    differentiated with ``jax.vjp``, which takes the derivatives with respect
+    to the circuit's inputs and returns those with respect to the layer's own
+    parameters, without further evaluations of the circuit.
+
+    Call the returned function inside a single ``@jaspify`` function, so that
+    all its evaluations are traced together. Every separate call of a jaspified
+    function holds on to memory, so one call per shifted evaluation exhausts
+    the memory of a long training run.
+
+    ::
+
+        from qrisp.jasp import jaspify
+
+        @jaspify(terminal_sampling=True)
+        def circuit_with_derivatives(x, w):
+            return value_and_derivatives(x, w)
+
+    """
+    estimate = expectation(state_prep, observables, precision=precision)
+    single = isinstance(argnums, int)
+    positions = (argnums,) if single else tuple(argnums)
+
+    def value_and_derivatives(*args):
+        values = estimate(*args)
+        derivatives = []
+
+        for position in positions:
+            argument = jnp.asarray(args[position])
+
+            if jnp.ndim(argument) != 1:
+                raise ValueError(
+                    f"Tried to differentiate argument {position} of shape {jnp.shape(argument)}. "
+                    "The parameter shift rule takes one-dimensional arguments, one angle per entry."
+                )
+
+            shifts = jnp.eye(jnp.shape(argument)[0]) * (jnp.pi / 2)
+            shifted = list(args)
+            rows = []
+
+            for shift in shifts:
+                shifted[position] = argument + shift
+                plus = estimate(*shifted)
+                shifted[position] = argument - shift
+                minus = estimate(*shifted)
+                rows.append((plus - minus) / 2)
+
+            derivatives.append(jnp.stack(rows))
+
+        return values, derivatives[0] if single else tuple(derivatives)
+
+    return value_and_derivatives
