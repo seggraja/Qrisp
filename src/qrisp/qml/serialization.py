@@ -156,4 +156,7 @@ def load_model(filename):
             "load it."
         )
 
+    if not isinstance(record.get("parts"), dict):
+        raise ValueError(f"Tried to load {filename}, which was not written by save_model.")
+
     return dict(record["parts"])

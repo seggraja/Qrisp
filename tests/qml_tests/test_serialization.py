@@ -279,10 +279,16 @@ def test_saving_nothing_is_rejected(tmp_path):
         save_model(tmp_path / "model.pkl")
 
 
-def test_a_file_not_written_by_save_model_is_rejected(tmp_path):
+@pytest.mark.parametrize(
+    "record",
+    [[1, 2, 3], {"format_version": 1}, {"format_version": 1, "parts": [1, 2]}],
+    ids=["not_a_record", "no_parts", "parts_not_named"],
+)
+def test_a_file_not_written_by_save_model_is_rejected(tmp_path, record):
+    """A record without named parts fails with the same message as any other foreign file."""
     filename = tmp_path / "other.pkl"
     with open(filename, "wb") as file:
-        dill.dump([1, 2, 3], file)
+        dill.dump(record, file)
 
     with pytest.raises(ValueError, match="not written by save_model"):
         load_model(filename)
