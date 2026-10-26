@@ -23,8 +23,8 @@ import numpy as np
 import pytest
 from jax.tree_util import register_pytree_node_class
 
-from qrisp import BasisPreparationWarning, QuantumFloat, measure, ry
-from qrisp.jasp import jaspify, jrange
+from qrisp import BasisPreparationWarning, QuantumFloat, h, measure, ry
+from qrisp.jasp import jaspify, jrange, terminal_sampling
 from qrisp.qml import Encoding
 
 
@@ -186,7 +186,17 @@ def test_amplitude_encoding_rejects_oversized_feature_vector():
 def test_amplitude_encoding_without_padding_requires_exact_length():
     """pad=False opts out of zero-padding, so the length must match exactly."""
     with pytest.raises(ValueError, match="pad=True"):
-        Encoding.amplitude(n_features=3, pad=False).apply(QuantumFloat(2), [1.0, 2.0, 3.0])
+        Encoding.amplitude(n_features=4, pad=False).apply(QuantumFloat(3), [1.0, 2.0, 3.0, 4.0])
+
+
+def test_amplitude_encoding_without_padding_rejects_a_feature_count_no_register_holds():
+    """
+    A register holds a power of two amplitudes, so without padding any other
+    feature count fails for every register. It is rejected on construction,
+    where the traced path, which cannot see the register width, is covered too.
+    """
+    with pytest.raises(ValueError, match="power of two"):
+        Encoding.amplitude(n_features=3, pad=False)
 
 
 @pytest.mark.parametrize(
@@ -263,24 +273,46 @@ def test_angle_encoding_traces(features, outcome):
 
 @pytest.mark.parametrize(
     "features, num_qubits",
-    [([1.0, 0.0, 0.0], 2), ([1.0, 0.0, 0.0, 0.0], 2), ([1.0, 0.0, 0.0], 3)],
+    [
+        ([1.0, -2.0, 3.0, 4.0], 2),
+        ([1.0, -2.0, 3.0], 2),
+        ([1.0, -2.0, 3.0, 4.0], 3),
+        ([0.0, 0.0, 1.0, 0.0], 3),
+        ([1.0, 2.0, -3.0, 4.0, 5.0], 4),
+        ([3.0], 1),
+        ([-3.0], 2),
+    ],
 )
 def test_amplitude_encoding_traces(features, num_qubits):
     """
-    Amplitude encoding is compatible with the Jasp tracing path, including the
-    padded cases. The feature vector is the first basis state, so the register
-    is deterministic and the measurement is a value rather than a sample.
+    Under tracing, feature x_i becomes the amplitude of |i> with its sign, also
+    on a register wider than the features need. A Hadamard on the first qubit
+    turns the relative sign of each neighbouring pair of amplitudes into a
+    probability, so a sign error changes the distribution as well.
     """
-
     encoding = Encoding.amplitude(n_features=len(features))
 
-    @jaspify
+    @terminal_sampling
     def main(x):
         qf = QuantumFloat(num_qubits)
         encoding.apply(qf, x)
-        return measure(qf)
+        h(qf[0])
+        return qf
 
-    assert main(jnp.array(features)) == 0
+    amplitudes = np.zeros(2**num_qubits)
+    amplitudes[: len(features)] = features
+    amplitudes /= np.linalg.norm(amplitudes)
+
+    # The first qubit is the least significant bit, so |2j> and |2j+1> are the
+    # pairs the Hadamard mixes.
+    pairs = amplitudes.reshape(-1, 2)
+    mixed = np.stack([pairs[:, 0] + pairs[:, 1], pairs[:, 0] - pairs[:, 1]], axis=1) / np.sqrt(2)
+    expected = mixed.ravel() ** 2
+
+    distribution = main(jnp.array(features))
+    observed = np.array([distribution.get(i, 0.0) for i in range(2**num_qubits)])
+
+    assert np.allclose(observed, expected)
 
 
 def test_next_power_of_two_of_zero_is_one():

@@ -270,12 +270,23 @@ def _amplitude_encoding(qv, x, pad=True):
         if tracing:
             # qv.size is a tracer and cannot size an allocation, so the target
             # comes from the feature count, which is known while tracing.
-            # prepare() pads the rest of the way when the register is larger.
             num_amplitudes = _next_power_of_two(num_features)
 
         x = jnp.pad(x, (0, num_amplitudes - num_features))
 
-    prepare(qv, x)
+    if not tracing:
+        prepare(qv, x)
+        return qv
+
+    # prepare() reads the register width from qv.size, which under tracing does
+    # not match a vector sized from the features. Preparing only the qubits the
+    # vector fills leaves the remaining qubits in |0>, which in little endian
+    # order is the zero padding up to the full register.
+    num_qubits = jnp.shape(x)[0].bit_length() - 1
+
+    # A single amplitude is the |0> state up to a global phase.
+    if num_qubits > 0:
+        prepare(qv[:num_qubits], x)
 
     return qv
 
@@ -686,6 +697,15 @@ class Encoding:
 
         """
         encoding = _AmplitudeEncoding(n_features, _scaling(data, data_range, feature_range, periodic=False))
+
+        if not pad and _next_power_of_two(n_features) != n_features:
+            raise ValueError(
+                f"Tried to configure an amplitude encoder for {n_features} features "
+                "with pad=False. A register holds a power of two amplitudes, so "
+                "without padding the feature count must be one. Pass pad=True to "
+                "zero-pad the feature vector."
+            )
+
         encoding.pad = pad
 
         return encoding
