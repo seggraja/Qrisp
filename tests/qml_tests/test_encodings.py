@@ -16,6 +16,7 @@
 ********************************************************************************
 """
 
+import pickle
 import warnings
 
 import jax.numpy as jnp
@@ -478,6 +479,27 @@ class DoubleAngleEncoding(Encoding):
         for i in jrange(qv.size):
             ry(2 * x[i], qv[i])
         return qv
+
+
+def test_scaled_encodings_can_be_passed_as_traced_arguments():
+    """
+    Jax compares the configuration of every PyTree passed into a traced function
+    with those it has seen before, which arrays do not support. A second scaled
+    encoder, including a pickled copy of the first, then raised rather than
+    encoding. Each call has to apply its own encoder's scaling.
+    """
+    X = np.array([[0.0, 1.0], [2.0, 3.0]])
+    encoding = Encoding.angle(n_features=2, data=X)
+
+    @jaspify
+    def main(e, x):
+        qf = QuantumFloat(2)
+        e.apply(qf, x)
+        return measure(qf)
+
+    assert main(encoding, jnp.array([0.0, 3.0])) == 2
+    assert main(Encoding.angle(n_features=2, data_range=(0.0, 6.0)), jnp.array([6.0, 0.0])) == 1
+    assert main(pickle.loads(pickle.dumps(encoding)), jnp.array([2.0, 1.0])) == 1
 
 
 def test_subclass_inherits_the_traced_feature_check():

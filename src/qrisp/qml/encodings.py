@@ -906,16 +906,23 @@ class Encoding:
 
         The configuration is auxiliary data rather than a child, so that
         ``n_features`` stays a plain integer that the trace time check can
-        compare against.
+        compare against. The scale and offset of a scaling are children: Jax
+        compares auxiliary data for equality, which arrays do not support.
         """
-        return (), (self.n_features, self.scaling, self._options())
+        if self.scaling is None:
+            return (), (self.n_features, None, self._options())
+
+        scale, offset, feature_range = self.scaling
+
+        return (scale, offset), (self.n_features, feature_range, self._options())
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
         """
         PyTree unflatten for JAX.
         """
-        n_features, scaling, options = aux_data
+        n_features, feature_range, options = aux_data
+        scaling = None if feature_range is None else (*children, feature_range)
         encoding = cls(n_features, scaling)
 
         for name, value in options.items():
@@ -987,8 +994,9 @@ def _scaling(data, data_range, feature_range, periodic=True):
         return None
 
     scale, offset = _derive_range(data, data_range, feature_range, periodic=periodic)
+    low, high = feature_range
 
-    return scale, offset, feature_range
+    return scale, offset, (float(low), float(high))
 
 
 @register_pytree_node_class
