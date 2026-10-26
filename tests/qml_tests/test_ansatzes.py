@@ -504,6 +504,63 @@ def test_ansatzes_can_be_passed_as_traced_arguments(ansatz):
     assert main(ansatz, jnp.full(2, jnp.pi)) == 3
 
 
+@register_pytree_node_class
+class CountOnlyAnsatz(Ansatz):
+    """A subclass whose constructor takes the qubit count alone."""
+
+    def __init__(self, num_qubits):
+        super().__init__(num_qubits)
+
+    def parameter_count(self, num_qubits):
+        return num_qubits
+
+    def apply_gates(self, qv, w):
+        for i in jrange(qv.size):
+            ry(w[i], qv[i])
+        return qv
+
+
+@register_pytree_node_class
+class FactorFirstAnsatz(Ansatz):
+    """A subclass whose constructor takes a setting of its own first."""
+
+    def __init__(self, factor, num_qubits=1):
+        self.factor = factor
+        super().__init__(num_qubits)
+
+    def _options(self):
+        return {"factor": self.factor}
+
+    def parameter_count(self, num_qubits):
+        return num_qubits
+
+    def apply_gates(self, qv, w):
+        for i in jrange(qv.size):
+            ry(self.factor * w[i], qv[i])
+        return qv
+
+
+@pytest.mark.parametrize(
+    "ansatz, parameters",
+    [(CountOnlyAnsatz(1), [np.pi]), (FactorFirstAnsatz(2.0), [np.pi / 2])],
+    ids=["count_only", "factor_first"],
+)
+def test_subclass_with_its_own_constructor_can_be_a_traced_argument(ansatz, parameters):
+    """
+    Jax rebuilds an argument from its flattened form. Rebuilding through the
+    constructor passed it the base class arguments, which a subclass with a
+    signature of its own rejects or misreads.
+    """
+
+    @jaspify
+    def main(a, w):
+        qf = QuantumFloat(1)
+        a.apply(qf, w)
+        return measure(qf)
+
+    assert main(ansatz, jnp.array(parameters)) == 1
+
+
 def test_ansatz_without_hooks_reports_what_is_missing():
     """
     A subclass missing both parameter_count and num_parameters cannot know what

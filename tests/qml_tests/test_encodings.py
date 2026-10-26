@@ -502,6 +502,57 @@ def test_scaled_encodings_can_be_passed_as_traced_arguments():
     assert main(pickle.loads(pickle.dumps(encoding)), jnp.array([2.0, 1.0])) == 1
 
 
+@register_pytree_node_class
+class CountOnlyEncoding(Encoding):
+    """A subclass whose constructor takes the feature count alone."""
+
+    def __init__(self, n_features):
+        super().__init__(n_features)
+
+    def encode(self, qv, x):
+        for i in jrange(qv.size):
+            ry(x[i], qv[i])
+        return qv
+
+
+@register_pytree_node_class
+class FactorFirstEncoding(Encoding):
+    """A subclass whose constructor takes a setting of its own first."""
+
+    def __init__(self, factor, n_features=1):
+        super().__init__(n_features)
+        self.factor = factor
+
+    def _options(self):
+        return {"factor": self.factor}
+
+    def encode(self, qv, x):
+        for i in jrange(qv.size):
+            ry(self.factor * x[i], qv[i])
+        return qv
+
+
+@pytest.mark.parametrize(
+    "encoding, features",
+    [(CountOnlyEncoding(1), [np.pi]), (FactorFirstEncoding(2.0), [np.pi / 2])],
+    ids=["count_only", "factor_first"],
+)
+def test_subclass_with_its_own_constructor_can_be_a_traced_argument(encoding, features):
+    """
+    Jax rebuilds an argument from its flattened form. Rebuilding through the
+    constructor passed it the base class arguments, which a subclass with a
+    signature of its own rejects or misreads.
+    """
+
+    @jaspify
+    def main(e, x):
+        qf = QuantumFloat(1)
+        e.apply(qf, x)
+        return measure(qf)
+
+    assert main(encoding, jnp.array(features)) == 1
+
+
 def test_subclass_inherits_the_traced_feature_check():
     """
     The check on the base class is the reason for subclassing rather than

@@ -480,7 +480,8 @@ class Ansatz:
     parameter vector that does not match it. Registering the class as a PyTree
     lets it be passed as an argument to a traced function rather than only
     captured from the enclosing scope. Settings of your own are kept across that
-    roundtrip by returning them from ``_options``.
+    roundtrip by returning them from ``_options``; the rebuilt ansatz does not
+    pass through ``__init__``, so a subclass may give it any signature.
 
     """
 
@@ -839,7 +840,12 @@ class Ansatz:
         PyTree unflatten for JAX.
         """
         num_qubits, num_parameters, options = aux_data
-        ansatz = cls(num_qubits, num_parameters)
+
+        # Built without __init__, whose signature a subclass may change. The
+        # configuration was validated when the flattened ansatz was built.
+        ansatz = cls.__new__(cls)
+        ansatz.num_qubits = num_qubits
+        ansatz.num_parameters = num_parameters
 
         for name, value in options.items():
             setattr(ansatz, name, value)

@@ -558,7 +558,8 @@ class Encoding:
     Registering the class as a PyTree lets it be passed as an argument to a
     traced function rather than only captured from the enclosing scope. Settings
     of your own are kept across that roundtrip by returning them from
-    ``_options``.
+    ``_options``; the rebuilt encoding does not pass through ``__init__``, so a
+    subclass may give it any signature.
 
     """
 
@@ -934,8 +935,12 @@ class Encoding:
         PyTree unflatten for JAX.
         """
         n_features, feature_range, options = aux_data
-        scaling = None if feature_range is None else (*children, feature_range)
-        encoding = cls(n_features, scaling)
+
+        # Built without __init__, whose signature a subclass may change. The
+        # configuration was validated when the flattened encoding was built.
+        encoding = cls.__new__(cls)
+        encoding.n_features = n_features
+        encoding.scaling = None if feature_range is None else (*children, feature_range)
 
         for name, value in options.items():
             setattr(encoding, name, value)
