@@ -45,7 +45,9 @@ def _hardware_efficient(qv, w, layers=1, rotations=("y",), entangler="cx"):
 
     .. math::
 
-        \left( \prod_{l=1}^{L} U_{\text{ent}} R(w_l) \right) R(w_0)
+        R(w_L)\, U_{\text{ent}} \cdots R(w_1)\, U_{\text{ent}}\, R(w_0)
+
+    The operators act from right to left, so $R(w_0)$ is applied first.
 
     Each rotation layer applies one rotation per qubit for every axis in
     ``rotations``, so a register of $n$ qubits uses
@@ -147,16 +149,25 @@ def _real_amplitudes(qv, w, layers=1, entanglement="ring"):
 
     .. math::
 
-        \left( \prod_{l=1}^{L} U_{\text{ent}} R_Y(w_l) \right) R_Y(w_0)
+        R_Y(w_L)\, U_{\text{ent}} \cdots R_Y(w_1)\, U_{\text{ent}}\, R_Y(w_0)
 
-    A register of $n$ qubits uses $(L+1) \cdot n$ parameters.
+    The operators act from right to left, so $R_Y(w_0)$ is applied first. A
+    register of $n$ qubits uses $(L+1) \cdot n$ parameters, one per qubit and
+    rotation layer.
 
-    Because $R_Y$ and CX both have real matrix representations, every state this
-    ansatz prepares from $\ket{0}^{\otimes n}$ has real amplitudes. It therefore
-    explores only the real subspace of the Hilbert space, which is sufficient
-    whenever the quantity of interest is an expectation value of a real
-    observable, and halves the number of parameters a general rotation layer
-    would need.
+    Because $R_Y$ and CX both have real matrix representations, the ansatz maps
+    real amplitudes to real amplitudes. From $\ket{0}^{\otimes n}$, or after an
+    encoding with real amplitudes such as angle encoding about the Y axis, it
+    explores only the real subspace of the Hilbert space, which contains a state
+    for every value an expectation of a real observable can take.
+
+    After an encoding that introduces complex phases, such as dense angle
+    encoding or angle encoding about the X or Z axis, the ansatz rotates the
+    real and imaginary parts of the state separately and never mixes them. The
+    expectation value of a real observable is then a sum of one contribution
+    from each part, which restricts the functions of the features the model can
+    represent. An ansatz with rotations about further axes lifts this
+    restriction.
 
     Parameters
     ----------
@@ -258,9 +269,10 @@ def _data_reuploading(qv, x, w, ansatz_size, encoding, ansatz, layers=2):
 
     .. math::
 
-        \prod_{l=1}^{L} W(w_l) S(x)
+        W(w_L)\, S(x) \cdots W(w_1)\, S(x)
 
-    where $S$ is the encoding and $W$ the parameterized ansatz.
+    where $S$ is the encoding and $W$ the parameterized ansatz, acting from
+    right to left.
 
     Re-encoding the same features between parameterized layers raises the
     frequency spectrum the circuit can represent. A single encoding layer
@@ -561,7 +573,8 @@ class Ansatz:
 
         Each rotation layer applies one $R_Y$ rotation per qubit, separated by
         entangling layers of CX gates. As both gates have real matrix entries,
-        every amplitude of the resulting state is real.
+        a state with real amplitudes, such as the initial state of a register,
+        keeps real amplitudes.
 
         Parameters
         ----------
@@ -623,9 +636,10 @@ class Ansatz:
 
         .. math::
 
-            \prod_{l=1}^{L} W(w_l) S(x)
+            W(w_L)\, S(x) \cdots W(w_1)\, S(x)
 
-        where $S$ is the encoding and $W$ the parameterized ansatz.
+        where $S$ is the encoding and $W$ the parameterized ansatz, acting from
+        right to left.
 
         Re-encoding the same features between parameterized layers raises the
         frequency spectrum the circuit can represent. A single encoding layer
