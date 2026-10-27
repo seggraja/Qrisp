@@ -34,6 +34,23 @@ def _check_finite(X, name):
         raise ValueError(f"Tried to {name} features that are not all finite, i.e. that hold a NaN or an infinity.")
 
 
+def _as_real(X, name):
+    """
+    Converts features to floats, rejecting complex ones.
+
+    A float conversion discards imaginary parts with no more than a warning, so
+    a complex feature would otherwise continue as its real part alone.
+    """
+    X = np.asarray(X)
+
+    if np.iscomplexobj(X):
+        raise ValueError(
+            f"Tried to {name} complex features, which only amplitude encoding accepts. Prepare those with normalize."
+        )
+
+    return X.astype(float)
+
+
 def minmax_scale(X_train, X_test=None, feature_range=(0.0, np.pi), periodic=True):
     r"""
     Scales features into an interval suitable for an encoding.
@@ -171,7 +188,7 @@ def minmax_scale(X_train, X_test=None, feature_range=(0.0, np.pi), periodic=True
             "the features are amplitude encoded."
         )
 
-    X_train = np.asarray(X_train, dtype=float)
+    X_train = _as_real(X_train, "scale")
 
     if X_train.ndim != 2:
         raise ValueError(
@@ -193,7 +210,7 @@ def minmax_scale(X_train, X_test=None, feature_range=(0.0, np.pi), periodic=True
     spread = np.where(constant, 1.0, spread)
 
     def scale(X):
-        X = np.asarray(X, dtype=float)
+        X = _as_real(X, "scale")
         _check_finite(X, "scale")
 
         if X.shape[-1] != X_train.shape[-1]:
@@ -218,7 +235,8 @@ def normalize(X):
     r"""
     Scales each sample to unit norm for amplitude encoding.
 
-    Every row is divided by its Euclidean norm:
+    Every row is divided by its Euclidean norm, and complex features keep their
+    phases:
 
     .. math::
 
@@ -274,7 +292,8 @@ def normalize(X):
     array([1., 1.])
 
     """
-    X = np.asarray(X, dtype=float)
+    X = np.asarray(X)
+    X = X.astype(np.promote_types(X.dtype, np.float64))
     _check_finite(X, "normalize")
 
     # Dividing by the largest component first keeps the norm of a sample of very
@@ -361,7 +380,7 @@ def binarize(X, threshold=0.0):
     array([[0, 1]])
 
     """
-    X = np.asarray(X, dtype=float)
+    X = _as_real(X, "binarize")
     _check_finite(X, "binarize")
 
     return (X > threshold).astype(int)

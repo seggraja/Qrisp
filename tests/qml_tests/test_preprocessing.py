@@ -141,13 +141,19 @@ def test_normalize_scales_each_sample_separately():
     assert np.allclose(np.linalg.norm(normalized, axis=1), 1.0)
 
 
-def test_normalize_preserves_the_encoded_state():
+@pytest.mark.parametrize(
+    "features",
+    [np.array([1.0, 2.0, 3.0, 4.0]), np.array([1.0, 1j, -2.0, 0.5 - 1j]), [1.0, 1j, -2.0, 0.5 - 1j]],
+    ids=["real", "complex_array", "complex_list"],
+)
+def test_normalize_preserves_the_encoded_state(features):
     """
     Amplitude encoding normalizes internally, so encoding the normalized
     features prepares the same state as encoding the raw ones. This is the
-    property that makes the magnitude unrecoverable from the circuit.
+    property that makes the magnitude unrecoverable from the circuit. Complex
+    features keep their phases on both paths; a float conversion in normalize
+    dropped them.
     """
-    features = np.array([1.0, 2.0, 3.0, 4.0])
     encoding = Encoding.amplitude(n_features=4)
 
     raw = QuantumFloat(2)
@@ -160,6 +166,26 @@ def test_normalize_preserves_the_encoded_state():
         np.array(raw.qs.statevector("array"), dtype=complex),
         np.array(scaled.qs.statevector("array"), dtype=complex),
     )
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        lambda X: minmax_scale(X),
+        lambda X: minmax_scale(np.ones((2, 2)), X),
+        lambda X: binarize(X),
+        lambda X: Encoding.angle(n_features=2, data=X),
+        lambda X: Encoding.angle(n_features=2, data_range=(X[0], X[1])),
+    ],
+    ids=["minmax_train", "minmax_test", "binarize", "encoder_data", "encoder_data_range"],
+)
+def test_real_valued_preprocessing_rejects_complex_features(operation):
+    """
+    Scaling and thresholding order real values. A float conversion discarded
+    the imaginary parts with no more than a warning.
+    """
+    with pytest.raises(ValueError, match="complex features"):
+        operation(np.array([[1.0, 1j], [2.0, -1j]]))
 
 
 def test_normalize_rejects_a_zero_norm_sample():

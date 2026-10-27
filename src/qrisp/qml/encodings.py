@@ -28,7 +28,7 @@ from qrisp.core.gate_application_functions import x as x_gate
 from qrisp.environments import control
 from qrisp.jasp import check_for_tracing_mode, jlen, jrange
 from qrisp.misc.exceptions import BasisPreparationWarning
-from qrisp.qml.preprocessing import _check_finite
+from qrisp.qml.preprocessing import _as_real, _check_finite
 
 __all__ = ["Encoding"]
 
@@ -444,7 +444,7 @@ def _derive_range(data, data_range, feature_range, periodic=True):
         )
 
     if data is not None:
-        data = np.asarray(data, dtype=float)
+        data = _as_real(data, "scale")
 
         if data.ndim != 2:
             raise ValueError(
@@ -457,7 +457,7 @@ def _derive_range(data, data_range, feature_range, periodic=True):
         minimum = data.min(axis=0)
         maximum = data.max(axis=0)
     else:
-        minimum, maximum = (np.asarray(bound, dtype=float) for bound in data_range)
+        minimum, maximum = (_as_real(bound, "scale") for bound in data_range)
 
         if not (np.all(np.isfinite(minimum)) and np.all(np.isfinite(maximum))):
             raise ValueError(
