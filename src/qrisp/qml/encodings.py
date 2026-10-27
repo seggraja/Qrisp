@@ -784,6 +784,19 @@ class Encoding:
         rotation and a relative phase, so a register of $n$ qubits holds $2n$
         features. An odd feature count leaves the last qubit without a phase.
 
+        **Features at the poles**
+
+        A rotation angle of $0$ or $\pi$ leaves the qubit in $\ket{0}$ or
+        $\ket{1}$, where a relative phase is a global one and has no effect, so
+        the phase feature of that qubit is lost. A scaling into the default
+        range places the minimum and maximum of every rotation feature exactly
+        there: a sample at either extreme of feature $x_{2i}$ loses feature
+        $x_{2i+1}$. Near the poles the phase is only weakly visible, as its
+        effect scales with the sine of the rotation angle. A ``feature_range``
+        well inside $(0, \pi)$, such as ``(numpy.pi / 4, 3 * numpy.pi / 4)``,
+        keeps every phase clearly observable, at the cost of a narrower range
+        for the rotation features.
+
         Parameters
         ----------
         n_features : int
@@ -835,7 +848,10 @@ class Encoding:
         rejecting anything else, this encoder binarizes what it is given: a
         feature above ``threshold`` becomes ``1`` and a feature at or below it
         becomes ``0``. Continuous features are therefore accepted, and reach the
-        qubits reduced to bits rather than unchanged.
+        qubits reduced to bits rather than unchanged. The default threshold of
+        $0$ suits features centred on zero; for features scaled into an
+        interval, such as the output of :func:`minmax_scale
+        <qrisp.qml.minmax_scale>`, choose the middle of that interval.
 
         Parameters
         ----------

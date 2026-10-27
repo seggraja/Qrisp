@@ -370,6 +370,31 @@ def test_dense_angle_encoding_amplitudes(features, num_qubits):
     assert np.allclose(amplitudes_by_state(qf), expected)
 
 
+def test_dense_angle_encoding_loses_the_phase_feature_at_the_poles():
+    """
+    The default range scales the minimum of a rotation feature to the angle 0,
+    where the qubit stays in |0> and the paired phase feature is a global
+    phase: samples differing only in that feature encode to the same state. A
+    range well inside (0, pi) keeps them apart; at (pi/4, 3pi/4) the two states
+    have fidelity cos^4(pi/8) + sin^4(pi/8) = 0.75.
+    """
+    X = np.array([[0.0, 0.0], [1.0, 1.0], [2.0, 2.0]])
+    samples = np.array([[0.0, 0.0], [0.0, 2.0]])
+
+    def fidelity(encoding):
+        states = []
+        for sample in samples:
+            qf = QuantumFloat(1)
+            encoding.apply(qf, sample)
+            states.append(statevector_array(qf))
+        return abs(np.vdot(*states)) ** 2
+
+    assert np.isclose(fidelity(Encoding.dense_angle(n_features=2, data=X)), 1.0)
+    assert np.isclose(
+        fidelity(Encoding.dense_angle(n_features=2, data=X, feature_range=(np.pi / 4, 3 * np.pi / 4))), 0.75
+    )
+
+
 def test_dense_angle_encoding_rejects_oversized_feature_vector():
     """Dense angle encoding holds at most two features per qubit."""
     with pytest.raises(ValueError, match="two features per qubit"):

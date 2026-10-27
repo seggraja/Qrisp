@@ -310,6 +310,12 @@ def binarize(X, threshold=0.0):
     it falls on. It suits data that is already close to binary, and loses most
     of the information in data that is not.
 
+    The default threshold of $0$ splits data centred on zero at its centre.
+    Features scaled with :func:`minmax_scale` lie in its ``feature_range``,
+    whose lower bound is $0$ by default, so this threshold turns every feature
+    above its training minimum into ``1``. Split such features at the middle of
+    the range instead, ``threshold=numpy.pi / 2`` for the default range.
+
     Parameters
     ----------
     X : numpy.ndarray
