@@ -411,7 +411,7 @@ def _basis_encoding(qv, x):
 
 def _derive_range(data, data_range, feature_range, periodic=True):
     """
-    Returns the affine map onto ``feature_range`` as a (scale, offset) pair.
+    Returns the affine map onto ``feature_range`` as a (scale, minimum) pair.
 
     Runs outside the traced region, where every value is concrete, so the pair
     it returns are plain floats that the encoder carries into the trace.
@@ -475,9 +475,8 @@ def _derive_range(data, data_range, feature_range, periodic=True):
     spread = np.where(constant, 1.0, spread)
 
     scale = np.where(constant, 0.0, (high - low) / spread)
-    offset = low - scale * minimum
 
-    return scale, offset
+    return scale, minimum
 
 
 class Encoding:
@@ -938,15 +937,15 @@ class Encoding:
 
         The configuration is auxiliary data rather than a child, so that
         ``n_features`` stays a plain integer that the trace time check can
-        compare against. The scale and offset of a scaling are children: Jax
+        compare against. The scale and minimum of a scaling are children: Jax
         compares auxiliary data for equality, which arrays do not support.
         """
         if self.scaling is None:
             return (), (self.n_features, None, self._options())
 
-        scale, offset, feature_range = self.scaling
+        scale, minimum, feature_range = self.scaling
 
-        return (scale, offset), (self.n_features, feature_range, self._options())
+        return (scale, minimum), (self.n_features, feature_range, self._options())
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
@@ -1026,11 +1025,16 @@ class Encoding:
                 "a scaling: pass neither data nor data_range."
             )
 
-        scale, offset, (low, high) = self.scaling
+        scale, minimum, (low, high) = self.scaling
+
+        # Subtracting the minimum first keeps the precision of features with a
+        # large offset and a small spread. The equivalent scale * x + offset
+        # cancels two large numbers, and loses it.
+        scaled = low + scale * (jnp.asarray(x, dtype=float) - minimum)
 
         # Clipping matches minmax_scale: a sample outside the configured range
         # would otherwise leave the interval the encoding expects.
-        return jnp.clip(scale * jnp.asarray(x, dtype=float) + offset, low, high)
+        return jnp.clip(scaled, low, high)
 
 
 def _scaling(data, data_range, feature_range, periodic=True):
@@ -1040,10 +1044,10 @@ def _scaling(data, data_range, feature_range, periodic=True):
     if data is None and data_range is None:
         return None
 
-    scale, offset = _derive_range(data, data_range, feature_range, periodic=periodic)
+    scale, minimum = _derive_range(data, data_range, feature_range, periodic=periodic)
     low, high = feature_range
 
-    return scale, offset, (float(low), float(high))
+    return scale, minimum, (float(low), float(high))
 
 
 @register_pytree_node_class

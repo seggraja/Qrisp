@@ -19,6 +19,7 @@
 import pickle
 import warnings
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -26,7 +27,7 @@ from jax.tree_util import register_pytree_node_class
 
 from qrisp import BasisPreparationWarning, QuantumFloat, h, measure, ry, s
 from qrisp.jasp import jaspify, jrange, terminal_sampling
-from qrisp.qml import Encoding
+from qrisp.qml import Encoding, minmax_scale
 
 
 def statevector_array(qv):
@@ -504,6 +505,31 @@ class DoubleAngleEncoding(Encoding):
         for i in jrange(qv.size):
             ry(2 * x[i], qv[i])
         return qv
+
+
+@pytest.mark.parametrize(
+    "X",
+    [
+        np.random.default_rng(3).normal(size=(6, 2)),
+        np.array([[1e16, 1e16], [1e16 + 2, 1e16 + 2]]),
+        np.array([[1e15, 0.0], [1e15 + 1, 1.0], [1e15 + 4, 4.0]]),
+    ],
+    ids=["ordinary", "large_offset_endpoints", "large_offset_interior"],
+)
+def test_encoder_scaling_matches_minmax_scale(X):
+    """
+    An encoder configured with data scales its samples as minmax_scale does,
+    also under jit. Computed as scale * x + offset, features with a large
+    offset and a small spread lost their precision: the upper endpoint of the
+    second dataset became 2.0 instead of pi, and 2.72 under jit.
+    """
+    encoding = Encoding.angle(n_features=2, data=X)
+    compiled = jax.jit(lambda e, x: e._prepare(x))
+
+    expected = minmax_scale(X)
+
+    assert np.allclose([encoding._prepare(x) for x in X], expected)
+    assert np.allclose([compiled(encoding, jnp.asarray(x)) for x in X], expected)
 
 
 def test_scaled_encodings_can_be_passed_as_traced_arguments():
