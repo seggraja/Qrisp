@@ -250,8 +250,9 @@ def normalize(X):
 
     Applying this function first makes that visible in the data rather than
     leaving it to happen silently inside the encoding. Where the magnitude
-    carries information, it has to be kept as a separate feature, and this
-    function shows what would otherwise be lost.
+    carries information, keep it outside the amplitudes or append a constant
+    feature before encoding, as described for :meth:`Encoding.amplitude`.
+    Appending the norm itself does not keep it.
 
     Parameters
     ----------

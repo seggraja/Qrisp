@@ -449,6 +449,16 @@ class Ansatz:
     configured for three qubits to a register of four is not reported. Keeping
     the two in step is left to the caller.
 
+    **Parameters the readout cannot see**
+
+    ``num_parameters`` counts gate angles, not directions the model can learn.
+    A gate that commutes with the observable cannot change its expectation
+    value: $R_Z$ rotations and CZ gates commute with a $Z$ readout, so a final
+    $R_Z$ layer before such a readout does not affect the result, and neither
+    does a gate acting only on qubits that are not measured. The derivatives
+    for such parameters are zero, which sampling noise can make appear small
+    but nonzero.
+
     **Writing an ansatz**
 
     Subclassing this class gives an ansatz of your own the same parameter count
@@ -577,6 +587,14 @@ class Ansatz:
         a state with real amplitudes, such as the initial state of a register,
         keeps real amplitudes.
 
+        With a real observable, such as a product of $Z$ and $X$ operators, a
+        real ansatz gives the same expectation value for a state and its
+        complex conjugate. A phase encoded as $\phi$, as by
+        :meth:`Encoding.dense_angle`, is then indistinguishable from $-\phi$.
+        Where the sign of a phase carries information, use an ansatz with
+        rotations about other axes, such as :meth:`hardware_efficient` with
+        ``rotations=("x", "y")``, or an observable involving $Y$.
+
         Parameters
         ----------
         num_qubits : int
@@ -649,6 +667,14 @@ class Ansatz:
         parameters widens it. With $L$ encoding layers the accessible spectrum
         grows with $L$, which is what allows a circuit on few qubits to fit a
         rich function.
+
+        The growth requires encoding and ansatz layers that do not commute. A
+        basis encoding applies $X$ gates, which commute with $R_X$ rotations, so
+        with an ansatz of $R_X$ rotations alone the encodings cancel in pairs
+        and the output does not depend on the features. With $R_Y$ in both
+        encoding and ansatz on one qubit, the layers combine into one rotation
+        by $Lx + \sum_j w_j$: the frequency rises, but the parameters enter only
+        through their sum.
 
         Unlike the other ansatzes this one also takes the features, so it is
         applied as ``apply(qv, w, x)``.

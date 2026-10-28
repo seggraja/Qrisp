@@ -534,6 +534,13 @@ class Encoding:
     so training and test data are placed on the same scale. Only the derived
     range is retained; ``data`` itself is not.
 
+    Scale the features once. An encoder given ``data`` or ``data_range``
+    expects raw features, so features already passed through
+    :func:`minmax_scale` are scaled a second time, and arrive at the gates in
+    different units without an error. The same holds for thresholds:
+    :func:`binarize` followed by :meth:`basis` with a threshold other than its
+    default compares bits against a threshold meant for raw values.
+
     **Writing an encoding**
 
     Subclassing this class gives an encoding of your own the same feature count
@@ -676,8 +683,20 @@ class Encoding:
 
         Normalization discards the magnitude of a feature vector: $x$ and $cx$
         encode the same state for every $c \neq 0$. Two samples whose features
-        are proportional are therefore indistinguishable after encoding. Where
-        the magnitude matters, it has to be carried by a feature of its own.
+        are proportional are therefore indistinguishable after encoding.
+
+        Appending the norm as a further feature does not keep the magnitude, as
+        $[cx, \lVert cx \rVert] = c\,[x, \lVert x \rVert]$ is again
+        proportional. A constant feature does: $[x, 1]$ and $[cx, 1]$ are not
+        proportional, and the magnitude $r = \lVert x \rVert$ is encoded as the
+        angle $\arctan(r)$ between the two parts. The angle is most sensitive
+        for magnitudes near the constant, so choose it on the order of the
+        typical norm. The constant takes one amplitude, which may need a further
+        qubit.
+
+        The equivalence holds for the vector the state is prepared from. A
+        configured scaling adds an offset, so raw samples that are proportional
+        generally scale to vectors that are not, and encode to different states.
 
         **The default feature range**
 
@@ -851,6 +870,10 @@ class Encoding:
         $0$ suits features centred on zero; for features scaled into an
         interval, such as the output of :func:`minmax_scale
         <qrisp.qml.minmax_scale>`, choose the middle of that interval.
+
+        Bits are left unchanged by any threshold in $[0, 1)$, the default
+        included. Features binarized beforehand are therefore encoded with the
+        default, not with the threshold already used to binarize them.
 
         Parameters
         ----------

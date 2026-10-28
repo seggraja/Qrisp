@@ -226,6 +226,10 @@ def parameter_shift(state_prep, observables, precision=0.01, argnums=0):
         with $n$ entries an array with $n$ rows, row $k$ holding the derivatives
         of the expectation values with respect to entry $k$. If ``argnums`` is
         a tuple, the second entry is a tuple with one such array per position.
+        The derivatives are arranged with the parameters in rows and the
+        observables in columns, the transpose of the usual Jacobian. For a loss
+        $L$ of the expectation values $f$, the gradient with respect to the
+        parameters is therefore ``J @ g``, with $g_o = \partial L / \partial f_o$.
 
     Raises
     ------
