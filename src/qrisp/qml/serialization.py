@@ -43,6 +43,24 @@ def save_model(filename, **parts):
     Classes you define yourself, such as an :class:`Encoding` subclass written
     in a notebook, are stored together with their code.
 
+    **Preprocessing is not saved**
+
+    Only the parts passed are saved, so preprocessing applied before encoding
+    has to be reproduced for new raw data after loading. A loaded model given
+    features prepared differently encodes them without an error. What has to be
+    kept depends on the step:
+
+    * Steps derived from the training data, such as :func:`minmax_scale`, need
+      the statistics they were derived from. That function returns the scaled
+      arrays but not the range. Configure the encoder with ``data`` or
+      ``data_range`` instead, so that the range is stored with it, or save the
+      training range as a part of its own and scale with it after loading.
+    * Steps with a fixed setting, such as the threshold of :func:`binarize`,
+      need that setting applied again. Save it as a part if it is not fixed in
+      the code that uses the model.
+    * Steps acting on each sample alone, such as :func:`normalize`, store no
+      statistics, but still have to be applied to every new sample.
+
     Parameters
     ----------
     filename : str or os.PathLike

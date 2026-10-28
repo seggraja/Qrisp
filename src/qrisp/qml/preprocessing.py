@@ -72,6 +72,12 @@ def minmax_scale(X_train, X_test=None, feature_range=(0.0, np.pi), periodic=True
     its bounds, which keeps every encoded angle inside the interval the encoding
     expects.
 
+    Only the scaled arrays are returned, not the range they were scaled with.
+    A model trained on them therefore needs that range again for new raw data,
+    including after :func:`save_model`. An encoder configured with ``data``
+    scales with the same range and stores it, so it is the simpler choice for a
+    model that will be saved.
+
     **Why the interval matters**
 
     :meth:`Encoding.angle` and :meth:`Encoding.dense_angle` read features as
