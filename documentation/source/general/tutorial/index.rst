@@ -293,7 +293,7 @@ Explore the Jasp pipeline to build highly performant algorithms, and ensure your
 
             <a href="./QMLTransferLearning.html">
             <div class="example-img-plot-overlay">
-            <p class="sd-card-text">Keep a pretrained image network frozen and train a seven parameter quantum model on the features it produces.</p>
+            <p class="sd-card-text">Keep a pretrained image network frozen and train a quantum model on its features, with gradients from the parameter-shift rule.</p>
             </div>
             </a>
 
