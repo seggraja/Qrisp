@@ -908,6 +908,27 @@ class _DataReuploading(Ansatz):
     def _options(self):
         return {"layers": self.layers, "encoding": self.encoding, "ansatz": self.ansatz}
 
+    def tree_flatten(self):
+        """
+        PyTree flatten for JAX.
+
+        The encoding and the inner ansatz are children rather than auxiliary
+        data. Held as auxiliary data, the scaling of the encoding would be a
+        constant of every compiled function instead of an input to it.
+        """
+        return (self.encoding, self.ansatz), (self.num_qubits, self.num_parameters, self.layers)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        """
+        PyTree unflatten for JAX.
+        """
+        reuploading = cls.__new__(cls)
+        reuploading.num_qubits, reuploading.num_parameters, reuploading.layers = aux_data
+        reuploading.encoding, reuploading.ansatz = children
+
+        return reuploading
+
     def apply(self, qv, w, x):
         """
         Applies alternating encoding and ansatz layers to ``qv``.

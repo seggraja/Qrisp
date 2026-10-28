@@ -18,10 +18,11 @@
 
 from functools import partial
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from jax.tree_util import register_pytree_node_class
+from jax.tree_util import register_pytree_node_class, tree_flatten, tree_leaves, tree_unflatten
 
 from qrisp import QuantumFloat, h, measure, ry
 from qrisp.jasp import jaspify, jrange
@@ -635,3 +636,48 @@ def test_data_reuploading_rejects_a_reuploading_inner_ansatz():
             ansatz=inner,
             layers=2,
         )
+
+
+def reuploading_with_range(data_range):
+    return Ansatz.data_reuploading(
+        num_qubits=1,
+        encoding=Encoding.angle(n_features=1, data_range=data_range),
+        ansatz=Ansatz.real_amplitudes(num_qubits=1, layers=0),
+        layers=2,
+    )
+
+
+def test_data_reuploading_exposes_the_scaling_of_its_encoding():
+    """
+    A standalone encoding passes its scaling to Jax as leaves. Nested in a
+    reuploading ansatz, it was auxiliary data, which left the ansatz without
+    any leaves. The rebuilt ansatz keeps the configuration it was built with.
+    """
+    ansatz = reuploading_with_range(([0.0], [2.0]))
+
+    assert len(tree_leaves(ansatz)) == len(tree_leaves(ansatz.encoding)) == 2
+
+    rebuilt = tree_unflatten(*reversed(tree_flatten(ansatz)))
+
+    assert (rebuilt.num_qubits, rebuilt.num_parameters, rebuilt.layers) == (1, 2, 2)
+    assert np.allclose(rebuilt.encoding._prepare(jnp.array([1.0])), np.pi / 2)
+
+
+def test_data_reuploading_scaling_is_an_input_of_a_compiled_function():
+    """
+    Two ansatzes differing only in the scaling of their encoding share one
+    compiled function and each gets its own scaling. As auxiliary data the
+    scaling was compiled in, so each ansatz retraced, and a scaling changed in
+    place after compilation was not seen.
+    """
+    traces = []
+
+    @jax.jit
+    def scaled(ansatz, x):
+        traces.append(None)
+        return ansatz.encoding._prepare(x)
+
+    # The feature 1 lies at the middle of [0, 2] and at the top of [0, 1].
+    assert np.allclose(scaled(reuploading_with_range(([0.0], [2.0])), jnp.array([1.0])), np.pi / 2)
+    assert np.allclose(scaled(reuploading_with_range(([0.0], [1.0])), jnp.array([1.0])), np.pi)
+    assert len(traces) == 1
