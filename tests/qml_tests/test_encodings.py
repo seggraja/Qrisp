@@ -334,6 +334,28 @@ def test_scaled_encoding_rejects_complex_features_when_traced():
         main(jnp.array([1.0, 1j]))
 
 
+@pytest.mark.parametrize(
+    "encoding, num_qubits, x",
+    [
+        (Encoding.basis(n_features=2), 2, [np.nan, 1.0]),
+        (Encoding.angle(n_features=2), 2, [np.nan, 1.0]),
+        (Encoding.dense_angle(n_features=2), 1, [np.nan, 1.0]),
+        (Encoding.amplitude(n_features=2), 1, [np.nan, 1.0]),
+        (Encoding.angle(n_features=2, data=np.array([[0.0, 0.0], [1.0, 1.0]])), 2, [np.inf, 0.5]),
+    ],
+    ids=["basis", "angle", "dense_angle", "amplitude", "scaled_infinity"],
+)
+def test_encoders_reject_non_finite_features(encoding, num_qubits, x):
+    """
+    Basis encoding turned a NaN into a zero bit, as a comparison with NaN is
+    False, and a scaling clipped an infinity onto a bound of the feature range.
+    The other encoders failed deep inside the simulation, naming neither the
+    feature nor its value.
+    """
+    with pytest.raises(ValueError, match="finite"):
+        encoding.apply(QuantumFloat(num_qubits), x)
+
+
 def test_amplitude_encoding_without_padding_rejects_a_feature_count_no_register_holds():
     """
     A register holds a power of two amplitudes, so without padding any other

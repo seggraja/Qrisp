@@ -934,6 +934,10 @@ class Encoding:
             If ``x`` does not hold exactly ``n_features`` features.
         ValueError
             If ``x`` is complex and the encoder was configured with a scaling.
+        ValueError
+            If ``x`` holds a NaN or an infinity. Features are only checked
+            outside of tracing, where their values are known; under tracing
+            they are encoded without a check.
 
         """
         # jnp.shape is static under tracing, so unlike qv.size these comparisons
@@ -951,6 +955,14 @@ class Encoding:
             raise ValueError(
                 f"Tried to encode {num_features} features with an encoder configured for {self.n_features}."
             )
+
+        # Under tracing the values are not known while the circuit is built,
+        # so only concrete features can be checked. A NaN would otherwise be
+        # encoded as whatever its gates make of it: basis encoding turns it
+        # into a zero bit, as a comparison with NaN is False. A scaling clips
+        # an infinity onto a bound of the feature range, hiding it as well.
+        if not check_for_tracing_mode() and not np.all(np.isfinite(np.asarray(x))):
+            raise ValueError("Tried to encode features that are not all finite, i.e. that hold a NaN or an infinity.")
 
         return self.encode(qv, self._prepare(x))
 
