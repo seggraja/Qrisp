@@ -307,14 +307,17 @@ def parameter_shift(state_prep, observables, precision=0.01, argnums=0):
                     "The parameter shift rule takes one-dimensional arguments, one angle per entry."
                 )
 
-            shifts = jnp.eye(jnp.shape(argument)[0]) * (jnp.pi / 2)
+            # A shift in place keeps the dtype of the argument, so an integer
+            # argument would truncate the shift of pi/2 to 1. Promoting to
+            # float64 matches the dtype adding a float64 shift produced.
+            argument = argument.astype(jnp.promote_types(argument.dtype, jnp.float64))
             shifted = list(args)
             rows = []
 
-            for shift in shifts:
-                shifted[position] = argument + shift
+            for k in range(jnp.shape(argument)[0]):
+                shifted[position] = argument.at[k].add(jnp.pi / 2)
                 plus = estimate(*shifted)
-                shifted[position] = argument - shift
+                shifted[position] = argument.at[k].add(-jnp.pi / 2)
                 minus = estimate(*shifted)
                 rows.append((plus - minus) / 2)
 

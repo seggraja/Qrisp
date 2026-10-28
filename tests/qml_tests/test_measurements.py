@@ -156,6 +156,17 @@ def test_parameter_shift_gives_the_derivative_of_a_rotation(x, w):
     assert np.allclose([dx[0], dw[0]], -np.sin(x + w), atol=TOLERANCE)
 
 
+def test_parameter_shift_accepts_an_integer_argument():
+    """
+    An integer argument shifted in place keeps its dtype, which truncates the
+    shift of pi/2 to 1. At x + w = 2 that gives -sin(2) sin(1), about -0.765,
+    instead of -sin(2), about -0.909, a gap the tighter precision resolves.
+    """
+    _, (dx, dw) = parameter_shift(rotated_qubit, Z(0), precision=0.005, argnums=(0, 1))(np.array([2]), np.array([0]))
+
+    assert np.allclose([dx[0], dw[0]], -np.sin(2), atol=0.05)
+
+
 def entangled_pair(x):
     qf = QuantumFloat(2)
     ry(x[0], qf[0])
